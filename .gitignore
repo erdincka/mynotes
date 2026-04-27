@@ -1,0 +1,110 @@
+# Built application files
+*.apk
+*.ap_
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+build/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Windows thumbnail cache files
+Thumbs.db
+
+# macOS files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+*.ids
+/out/
+/androidTest/
+/test/
+
+# Gradle files
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Signing files
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+# Google Services (if using Firebase)
+# google-services.json - Keep this commented if you want to track it
+# GoogleService-Info.plist
+
+# Android specific
+captures/
+*.native
+*.pyc
+*.pyo
+*.rbc
+*.yarb
+*.backend
+.externalNativeBuild/
+.cxx/
+
+# Navigation editor
+.navigation/
+
+# Data Binding
+/databinding/
+*.db
+
+# Room
+*schema.json
+
+# Profiling
+*.hprof
+
+# Chucker
+# If you want to exclude Chucker's HTTP logs from version control
+# (usually not needed as it's debug-only)
+
+# OneDrive/Cloud sync hidden files
+~$*
+*.tmp
+.~lock.*
+
+# Gradle task configuration
+gradle-app.setting
+
+# OS metadata
+*.swp
+*.swo
+*~
+._*
+
+# Generated version files
+**/build/generated/
+
+# Test reports
+**/build/reports/
+**/build/test-results/
+
+# Coverage reports
+**/build/coverage/
+
+# Detekt baseline
+**/baseline.xml
+
+# Ktlint
+**/.editorconfig
+
+# Timber/Logging output
+# (debug logs, etc. - usually not committed)
