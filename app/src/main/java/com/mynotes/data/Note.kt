@@ -7,12 +7,13 @@ import kotlinx.serialization.Serializable
 @Entity(tableName = "notes")
 @Serializable
 data class Note(
-     @PrimaryKey(autoGenerate = true)
+    @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val name: String,
-    val content: String = "", // JSON serialized strokes/metadata
+    val content: String = "",
     val folderId: Long,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val category: String = "default"
+    val category: String = "default",
+    val isSynced: Boolean = false
 )

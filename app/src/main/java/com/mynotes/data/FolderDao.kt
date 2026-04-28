@@ -35,4 +35,10 @@ interface FolderDao {
 
      @Query("DELETE FROM folders WHERE parentId = :parentId")
     suspend fun deleteChildFolders(parentId: Long)
+
+     @Query("UPDATE folders SET isSynced = 1, updatedAt = :timestamp WHERE id = :id")
+    suspend fun markAsSynced(id: Long, timestamp: Long = System.currentTimeMillis())
+
+     @Query("UPDATE folders SET isSynced = 0 WHERE id = :id")
+    suspend fun markAsUnsynced(id: Long)
 }

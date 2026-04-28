@@ -11,6 +11,8 @@ class NoteRepository @Inject constructor(private val noteDao: NoteDao) {
 
     fun getNotesByFolder(folderId: Long): Flow<List<Note>> = noteDao.getNotesByFolder(folderId)
 
+    fun searchNotes(query: String): Flow<List<Note>> = noteDao.searchNotes(query)
+
     suspend fun getNoteById(id: Long): Note? = withContext(Dispatchers.IO) {
         noteDao.getNoteById(id)
     }
@@ -25,5 +27,13 @@ class NoteRepository @Inject constructor(private val noteDao: NoteDao) {
 
     suspend fun delete(note: Note) = withContext(Dispatchers.IO) {
         noteDao.delete(note)
+    }
+
+    suspend fun markAsSynced(id: Long) = withContext(Dispatchers.IO) {
+        noteDao.markAsSynced(id)
+    }
+
+    suspend fun markAsUnsynced(id: Long) = withContext(Dispatchers.IO) {
+        noteDao.markAsUnsynced(id)
     }
 }

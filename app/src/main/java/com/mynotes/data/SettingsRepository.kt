@@ -77,4 +77,11 @@ class SettingsRepository @Inject constructor(
             else preferences[ONEDRIVE_FOLDER_NAME_KEY] = folderName
         }
     }
+
+    suspend fun setExportFolderUri(uri: String?) {
+        context.dataStore.edit { preferences ->
+            if (uri == null) preferences.remove(EXPORT_FOLDER_URI_KEY)
+            else preferences[EXPORT_FOLDER_URI_KEY] = uri
+        }
+    }
 }

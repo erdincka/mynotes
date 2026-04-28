@@ -1,8 +1,10 @@
 package com.mynotes.ui
 
+import androidx.activity.ComponentActivity
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mynotes.data.SettingsRepository
+import com.mynotes.sync.OneDriveAuthManager
 import com.mynotes.sync.OneDriveClient
 import com.mynotes.sync.OneDriveItem
 import com.mynotes.sync.SyncScheduler
@@ -13,12 +15,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val oneDriveClient: OneDriveClient,
+    private val oneDriveAuthManager: OneDriveAuthManager,
     private val syncScheduler: SyncScheduler
 ) : ViewModel() {
 
@@ -34,11 +38,17 @@ class SettingsViewModel @Inject constructor(
     val onedriveFolderName: StateFlow<String?> = settingsRepository.onedriveFolderName
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val exportFolderUri: StateFlow<String?> = settingsRepository.exportFolderUri
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     private val _oneDriveFolders = MutableStateFlow<List<OneDriveItem>>(emptyList())
     val oneDriveFolders = _oneDriveFolders.asStateFlow()
 
     private val _isConnecting = MutableStateFlow(false)
     val isConnecting = _isConnecting.asStateFlow()
+
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage = _errorMessage.asStateFlow()
 
     fun setDarkTheme(isDark: Boolean?) {
         viewModelScope.launch {
@@ -52,54 +62,41 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun connectOneDrive(token: String) {
+    fun setExportFolderUri(uri: String?) {
+        viewModelScope.launch {
+            settingsRepository.setExportFolderUri(uri)
+        }
+    }
+
+    /** Launches the MSAL interactive sign-in flow via Chrome Custom Tab. */
+    fun signInOneDrive(activity: ComponentActivity) {
         viewModelScope.launch {
             _isConnecting.value = true
-            // Verify token by listing root children
-            val result = oneDriveClient.listFolderItems(token, "root")
-            if (result.isSuccess) {
-                settingsRepository.setOneDriveConfig(token, null, null)
-                _oneDriveFolders.value = result.getOrNull()?.filter { it.size == null } ?: emptyList()
+            _errorMessage.value = null
+            val tokenResult = oneDriveAuthManager.signIn(activity)
+            tokenResult.onSuccess { token ->
+                // Store a connection marker; MSAL caches the account internally
+                settingsRepository.setOneDriveConfig("msal_connected", null, null)
+                fetchOneDriveFolders(token)
+            }.onFailure { e ->
+                Timber.e(e, "SettingsViewModel: OneDrive sign-in failed")
+                _errorMessage.value = e.message ?: "Sign-in failed"
             }
             _isConnecting.value = false
         }
     }
 
-    fun getOAuthUrl(): String {
-        val clientId = "9c07213f-db1e-44d4-94dd-662e04efaf85" // Placeholder
-        val redirectUri = "mynotes://onedrive-auth"
-        val scope = "files.readwrite offline_access"
-        return "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?" +
-                "client_id=$clientId" +
-                "&response_type=token" +
-                "&redirect_uri=$redirectUri" +
-                "&scope=$scope"
-    }
-
-    fun handleAuthRedirect(uri: android.net.Uri) {
-        val fragment = uri.fragment
-        if (fragment != null) {
-            val params = fragment.split("&").associate {
-                val parts = it.split("=")
-                parts[0] to parts.getOrElse(1) { "" }
-            }
-            val accessToken = params["access_token"]
-            if (accessToken != null) {
-                connectOneDrive(accessToken)
-            }
-        }
-    }
-
     fun selectOneDriveFolder(folder: OneDriveItem) {
         viewModelScope.launch {
-            val token = onedriveAccessToken.value ?: return@launch
-            settingsRepository.setOneDriveConfig(token, folder.id, folder.name)
+            settingsRepository.setOneDriveConfig("msal_connected", folder.id, folder.name)
             syncScheduler.scheduleSync(immediate = true)
+            _oneDriveFolders.value = emptyList()
         }
     }
 
     fun disconnectOneDrive() {
         viewModelScope.launch {
+            oneDriveAuthManager.signOut()
             settingsRepository.setOneDriveConfig(null, null, null)
             _oneDriveFolders.value = emptyList()
         }
@@ -107,11 +104,29 @@ class SettingsViewModel @Inject constructor(
 
     fun refreshFolders() {
         viewModelScope.launch {
-            val token = onedriveAccessToken.value ?: return@launch
-            val result = oneDriveClient.listFolderItems(token, "root")
-            if (result.isSuccess) {
-                _oneDriveFolders.value = result.getOrNull()?.filter { it.size == null } ?: emptyList()
+            _isConnecting.value = true
+            val tokenResult = oneDriveAuthManager.silentSignIn()
+            tokenResult.onSuccess { token ->
+                fetchOneDriveFolders(token)
+            }.onFailure { e ->
+                Timber.e(e, "SettingsViewModel: token refresh failed")
+                _errorMessage.value = "Session expired — please sign in again"
             }
+            _isConnecting.value = false
+        }
+    }
+
+    fun clearError() {
+        _errorMessage.value = null
+    }
+
+    private suspend fun fetchOneDriveFolders(token: String) {
+        val result = oneDriveClient.listFolderItems(token, "root")
+        result.onSuccess { items ->
+            _oneDriveFolders.value = items.filter { it.size == null }
+        }.onFailure { e ->
+            Timber.e(e, "SettingsViewModel: failed to list OneDrive folders")
+            _errorMessage.value = "Could not list OneDrive folders: ${e.message}"
         }
     }
 }

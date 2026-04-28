@@ -7,6 +7,7 @@ import com.mynotes.data.Note
 import com.mynotes.data.NoteRepository
 import com.mynotes.sync.SyncScheduler
 import com.mynotes.ui.canvas.StrokeData
+import com.mynotes.ui.canvas.nextStrokeId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -50,8 +51,14 @@ class NoteViewModel @Inject constructor(
         val currentNote = _note.value ?: return
         viewModelScope.launch {
             val content = Json.encodeToString(_strokes.value)
-            noteRepository.update(currentNote.copy(content = content, updatedAt = System.currentTimeMillis()))
-            syncScheduler.scheduleSync(immediate = false) // Schedule background sync
+            noteRepository.update(
+                currentNote.copy(
+                    content = content,
+                    updatedAt = System.currentTimeMillis(),
+                    isSynced = false
+                )
+            )
+            syncScheduler.scheduleSync(immediate = false)
         }
     }
 
@@ -71,17 +78,6 @@ class NoteViewModel @Inject constructor(
             _selectedStrokeIds.value = emptySet()
             return
         }
-        
-        val androidPath = android.graphics.Path().apply {
-            moveTo(pathPoints[0].x, pathPoints[0].y)
-            for (i in 1 until pathPoints.size) lineTo(pathPoints[i].x, pathPoints[i].y)
-            close()
-        }
-        val region = android.graphics.Region()
-        val bounds = android.graphics.RectF()
-        @Suppress("DEPRECATION")
-        androidPath.computeBounds(bounds, true)
-        region.setPath(androidPath, android.graphics.Region(bounds.left.toInt(), bounds.top.toInt(), bounds.right.toInt(), bounds.bottom.toInt()))
 
         val currentStrokes = _strokes.value
         val newStrokesList = mutableListOf<StrokeData>()
@@ -95,7 +91,7 @@ class NoteViewModel @Inject constructor(
             var wasInside: Boolean? = null
 
             for (i in stroke.points.indices) {
-                val inside = region.contains(stroke.points[i].x.toInt(), stroke.points[i].y.toInt())
+                val inside = pointInPolygon(stroke.points[i], pathPoints)
                 if (wasInside == null) {
                     wasInside = inside
                     currentSegment.add(i)
@@ -116,7 +112,7 @@ class NoteViewModel @Inject constructor(
             for (seg in inSegments) {
                 if (seg.size < 1) continue
                 val newStroke = stroke.copy(
-                    id = if (inSegments.size == 1 && outSegments.isEmpty()) stroke.id else System.nanoTime(),
+                    id = if (inSegments.size == 1 && outSegments.isEmpty()) stroke.id else nextStrokeId(),
                     points = seg.map { stroke.points[it] },
                     pressures = seg.map { if (it < stroke.pressures.size) stroke.pressures[it] else 1f }
                 )
@@ -126,7 +122,7 @@ class NoteViewModel @Inject constructor(
             for (seg in outSegments) {
                 if (seg.size < 1) continue
                 val newStroke = stroke.copy(
-                    id = if (outSegments.size == 1 && inSegments.isEmpty()) stroke.id else System.nanoTime(),
+                    id = if (outSegments.size == 1 && inSegments.isEmpty()) stroke.id else nextStrokeId(),
                     points = seg.map { stroke.points[it] },
                     pressures = seg.map { if (it < stroke.pressures.size) stroke.pressures[it] else 1f }
                 )
@@ -206,7 +202,7 @@ class NoteViewModel @Inject constructor(
                 for (segmentIndices in keptSegments) {
                     if (segmentIndices.isEmpty()) continue
                     newStrokesList.add(stroke.copy(
-                        id = System.nanoTime(),
+                        id = nextStrokeId(),
                         points = segmentIndices.map { stroke.points[it] },
                         pressures = segmentIndices.map { if (it < stroke.pressures.size) stroke.pressures[it] else 1f }
                     ))
@@ -218,6 +214,21 @@ class NoteViewModel @Inject constructor(
         if (changed) {
             _strokes.value = newStrokesList
         }
+    }
+
+    private fun pointInPolygon(point: Offset, polygon: List<Offset>): Boolean {
+        var inside = false
+        var j = polygon.size - 1
+        for (i in polygon.indices) {
+            val xi = polygon[i].x; val yi = polygon[i].y
+            val xj = polygon[j].x; val yj = polygon[j].y
+            if ((yi > point.y) != (yj > point.y) &&
+                point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi) {
+                inside = !inside
+            }
+            j = i
+        }
+        return inside
     }
 
     private fun saveToUndoStack() {

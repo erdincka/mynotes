@@ -28,10 +28,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.core.content.FileProvider
+import androidx.documentfile.provider.DocumentFile
 import com.mynotes.data.Folder
 import com.mynotes.data.FolderRepository
 import com.mynotes.data.Note
 import com.mynotes.data.NoteRepository
+import com.mynotes.data.SettingsRepository
 import com.mynotes.ui.canvas.PdfExporter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -41,6 +44,23 @@ import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
 import kotlin.math.roundToInt
+import timber.log.Timber
+
+/** Converts a SAF tree URI to a human-readable path like "Internal Storage/Documents/Notes". */
+internal fun android.net.Uri.toReadablePath(): String = try {
+    val docId = android.provider.DocumentsContract.getTreeDocumentId(this) ?: ""
+    if (docId.contains(':')) {
+        val colon = docId.indexOf(':')
+        val vol = docId.substring(0, colon)
+        val path = docId.substring(colon + 1)
+        val root = if (vol == "primary") "Internal Storage" else vol
+        if (path.isEmpty()) root else "$root/$path"
+    } else {
+        pathSegments.lastOrNull() ?: toString()
+    }
+} catch (_: Exception) {
+    pathSegments.lastOrNull() ?: toString()
+}
 
 enum class SortOrder {
     NAME, DATE
@@ -53,41 +73,51 @@ data class FolderListState(
     val selectedNotes: Set<Long> = emptySet(),
     val selectedFolders: Set<Long> = emptySet(),
     val isLoading: Boolean = true,
-    val sortOrder: SortOrder = SortOrder.NAME
+    val sortOrder: SortOrder = SortOrder.NAME,
+    val searchQuery: String = ""
 )
 
 @HiltViewModel
 class FolderListViewModel @Inject constructor(
     private val folderRepository: FolderRepository,
-    private val noteRepository: NoteRepository
+    private val noteRepository: NoteRepository,
+    private val settingsRepository: SettingsRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(FolderListState())
     val state: StateFlow<FolderListState> = _state
-    
+
     private val _sortOrder = MutableStateFlow(SortOrder.NAME)
+    private val _searchQuery = MutableStateFlow("")
 
     init {
         viewModelScope.launch {
             combine(
                 folderRepository.allFolders,
                 noteRepository.allNotes,
-                _sortOrder
-            ) { folders, notes, sortOrder ->
+                _sortOrder,
+                _searchQuery
+            ) { folders, notes, sortOrder, query ->
+                val filteredFolders = if (query.isBlank()) folders
+                else folders.filter { it.name.contains(query, ignoreCase = true) }
+                val filteredNotes = if (query.isBlank()) notes
+                else notes.filter { it.name.contains(query, ignoreCase = true) }
+
                 val sortedFolders = when (sortOrder) {
-                    SortOrder.NAME -> folders.sortedBy { it.name.lowercase() }
-                    SortOrder.DATE -> folders.sortedByDescending { it.updatedAt }
+                    SortOrder.NAME -> filteredFolders.sortedBy { it.name.lowercase() }
+                    SortOrder.DATE -> filteredFolders.sortedByDescending { it.updatedAt }
                 }
                 val sortedNotes = when (sortOrder) {
-                    SortOrder.NAME -> notes.sortedBy { it.name.lowercase() }
-                    SortOrder.DATE -> notes.sortedByDescending { it.updatedAt }
+                    SortOrder.NAME -> filteredNotes.sortedBy { it.name.lowercase() }
+                    SortOrder.DATE -> filteredNotes.sortedByDescending { it.updatedAt }
                 }
                 _state.value.copy(
                     folders = sortedFolders,
                     notes = sortedNotes,
                     isLoading = false,
-                    sortOrder = sortOrder
+                    sortOrder = sortOrder,
+                    searchQuery = query
                 )
-            }.collect { 
+            }.collect {
                 _state.value = it
             }
         }
@@ -95,6 +125,10 @@ class FolderListViewModel @Inject constructor(
 
     fun setSortOrder(order: SortOrder) {
         _sortOrder.value = order
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
     }
 
     fun toggleFolder(folderId: Long) {
@@ -180,34 +214,77 @@ class FolderListViewModel @Inject constructor(
         }
     }
 
-    fun exportNoteToPdf(context: android.content.Context, note: Note, onComplete: (File) -> Unit) {
+    fun exportNoteToPdf(
+        context: android.content.Context,
+        note: Note,
+        onComplete: (android.net.Uri, String) -> Unit,
+        onError: (String) -> Unit
+    ) {
         viewModelScope.launch {
-            val folders = _state.value.folders
-            val pathNames = mutableListOf<String>()
-            var currentFolderId = note.folderId
-            while (currentFolderId != 0L) {
-                val folder = folders.find { it.id == currentFolderId }
-                if (folder != null) {
-                    pathNames.add(0, folder.name)
-                    currentFolderId = folder.parentId ?: 0L
-                } else {
-                    break
+            val safeName = note.name.toSafeFileName()
+            val dateStr = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
+            val fileName = "$dateStr-$safeName.pdf"
+
+            val exportFolderUri = settingsRepository.exportFolderUri.first()
+
+            if (exportFolderUri != null) {
+                try {
+                    val treeUri = android.net.Uri.parse(exportFolderUri)
+                    val docDir = DocumentFile.fromTreeUri(context, treeUri)
+                        ?: run { onError("Invalid export folder — please re-select in Settings"); return@launch }
+
+                    docDir.findFile(fileName)?.delete()
+                    val docFile = docDir.createFile("application/pdf", fileName)
+                        ?: run { onError("Cannot create file in export folder"); return@launch }
+
+                    context.contentResolver.openOutputStream(docFile.uri)?.use { outputStream ->
+                        val result = PdfExporter(context).exportNote(note, outputStream)
+                        if (result.isSuccess) {
+                            val folderDisplay = treeUri.toReadablePath()
+                            onComplete(docFile.uri, "$folderDisplay/$fileName")
+                        } else {
+                            onError("PDF export failed: ${result.exceptionOrNull()?.message}")
+                        }
+                    } ?: onError("Cannot open output stream for export folder")
+                } catch (e: Exception) {
+                    Timber.e(e, "FolderListViewModel: SAF export failed")
+                    onError("Export failed: ${e.message}")
+                }
+            } else {
+                try {
+                    val exportDir = File(context.getExternalFilesDir(null), "Exports")
+                    exportDir.mkdirs()
+                    val outputFile = File(exportDir, fileName)
+                    outputFile.outputStream().use { outputStream ->
+                        val result = PdfExporter(context).exportNote(note, outputStream)
+                        if (result.isSuccess) {
+                            val uri = FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.provider",
+                                outputFile
+                            )
+                            onComplete(uri, "App Storage/Exports/$fileName")
+                        } else {
+                            onError("PDF export failed: ${result.exceptionOrNull()?.message}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "FolderListViewModel: file export failed")
+                    onError("Export failed: ${e.message}")
                 }
             }
-            
-            val dateStr = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
-            val namePrefix = if (pathNames.isNotEmpty()) pathNames.joinToString("-") + "-" else ""
-            val fileName = "${namePrefix}${dateStr}-${note.name}.pdf"
-            
-            val exportDir = File(context.getExternalFilesDir(null), "Exports")
-            if (!exportDir.exists()) exportDir.mkdirs()
-            val outputFile = File(exportDir, fileName)
-            
-            val result = PdfExporter(context).exportNote(note, "", outputFile)
-            if (result.isSuccess) {
-                onComplete(outputFile)
-            }
         }
+    }
+
+    private fun buildFolderPath(folderId: Long, folders: List<Folder>): List<String> {
+        val pathNames = mutableListOf<String>()
+        var currentFolderId = folderId
+        while (currentFolderId != 0L) {
+            val folder = folders.find { it.id == currentFolderId } ?: break
+            pathNames.add(0, folder.name.toSafeFileName())
+            currentFolderId = folder.parentId ?: 0L
+        }
+        return pathNames
     }
 }
 
@@ -229,9 +306,10 @@ fun FolderListScreen(
     var newItemName by remember { mutableStateOf("") }
     var targetFolderId by remember { mutableStateOf<Long?>(null) }
     var itemToRename by remember { mutableStateOf<Any?>(null) }
-    
+
     var showMoveDialog by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var searchActive by remember { mutableStateOf(false) }
     val folderBounds = remember { mutableStateMapOf<Long, Rect>() }
 
     val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()) }
@@ -241,50 +319,81 @@ fun FolderListScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = { Text("My Notes") },
-                actions = {
-                    if (state.selectedNotes.isNotEmpty() || state.selectedFolders.isNotEmpty()) {
-                        IconButton(onClick = { showMoveDialog = true }) {
-                            Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move Selected")
+            Column {
+                TopAppBar(
+                    title = { Text("My Notes") },
+                    actions = {
+                        if (state.selectedNotes.isNotEmpty() || state.selectedFolders.isNotEmpty()) {
+                            IconButton(onClick = { showMoveDialog = true }) {
+                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move Selected")
+                            }
+                            IconButton(onClick = { viewModel.deleteSelected() }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete Selected")
+                            }
                         }
-                        IconButton(onClick = { viewModel.deleteSelected() }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete Selected")
-                        }
-                    }
-                    
-                    Box {
-                        IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
-                        }
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Sort by Name") },
-                                onClick = {
-                                    viewModel.setSortOrder(SortOrder.NAME)
-                                    showSortMenu = false
-                                },
-                                leadingIcon = { Icon(Icons.Default.SortByAlpha, contentDescription = null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Sort by Date") },
-                                onClick = {
-                                    viewModel.setSortOrder(SortOrder.DATE)
-                                    showSortMenu = false
-                                },
-                                leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null) }
-                            )
-                        }
-                    }
 
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        IconButton(onClick = {
+                            searchActive = !searchActive
+                            if (!searchActive) viewModel.setSearchQuery("")
+                        }) {
+                            Icon(
+                                if (searchActive) Icons.Default.SearchOff else Icons.Default.Search,
+                                contentDescription = "Search"
+                            )
+                        }
+
+                        Box {
+                            IconButton(onClick = { showSortMenu = true }) {
+                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
+                            }
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Sort by Name") },
+                                    onClick = {
+                                        viewModel.setSortOrder(SortOrder.NAME)
+                                        showSortMenu = false
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.SortByAlpha, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Sort by Date") },
+                                    onClick = {
+                                        viewModel.setSortOrder(SortOrder.DATE)
+                                        showSortMenu = false
+                                    },
+                                    leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null) }
+                                )
+                            }
+                        }
+
+                        IconButton(onClick = onSettingsClick) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
                     }
+                )
+                if (searchActive) {
+                    OutlinedTextField(
+                        value = state.searchQuery,
+                        onValueChange = { viewModel.setSearchQuery(it) },
+                        placeholder = { Text("Search notes and folders…") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                        trailingIcon = {
+                            if (state.searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                    Icon(Icons.Default.Clear, contentDescription = "Clear")
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
                 }
-            )
+            }
         },
         floatingActionButton = {
             Column(horizontalAlignment = Alignment.End) {
@@ -367,11 +476,20 @@ fun FolderListScreen(
                         }
                     },
                     onExportPdf = { note ->
-                        viewModel.exportNoteToPdf(context, note) { file ->
-                            scope.launch {
-                                snackbarHostState.showSnackbar("Exported to ${file.absolutePath}")
+                        viewModel.exportNoteToPdf(
+                            context = context,
+                            note = note,
+                            onComplete = { _, savedPath ->
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Exported: ${savedPath.substringAfterLast('/')}")
+                                }
+                            },
+                            onError = { message ->
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Export failed: $message")
+                                }
                             }
-                        }
+                        )
                     }
                 )
                 
@@ -615,6 +733,15 @@ fun FolderItem(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold
             )
+            Icon(
+                imageVector = if (folder.isSynced) Icons.Default.CloudDone else Icons.Default.CloudUpload,
+                contentDescription = if (folder.isSynced) "Synced" else "Not synced",
+                tint = if (folder.isSynced)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                else
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                modifier = Modifier.size(16.dp)
+            )
             IconButton(onClick = onCreateNote) {
                 Icon(Icons.Default.Add, contentDescription = "Add Note", modifier = Modifier.size(20.dp))
             }
@@ -709,6 +836,15 @@ fun NoteItem(
                     )
                 }
             }
+            Icon(
+                imageVector = if (note.isSynced) Icons.Default.CloudDone else Icons.Default.CloudUpload,
+                contentDescription = if (note.isSynced) "Synced" else "Not synced",
+                tint = if (note.isSynced)
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                else
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                modifier = Modifier.size(18.dp)
+            )
             IconButton(onClick = onRename) {
                 Icon(Icons.Default.Edit, contentDescription = "Rename", modifier = Modifier.size(20.dp))
             }
@@ -723,3 +859,5 @@ fun NoteItem(
 }
 
 private fun Double.format(digits: Int) = "%.${digits}f".format(this)
+
+private fun String.toSafeFileName() = replace(Regex("[/\\\\:*?\"<>|]"), "_").trim()

@@ -1,6 +1,5 @@
 package com.mynotes
 
-import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,14 +18,11 @@ import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    private var settingsViewModel: SettingsViewModel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleIntent(intent)
         setContent {
             val vm: SettingsViewModel = hiltViewModel()
-            settingsViewModel = vm
             val isDarkTheme by vm.isDarkTheme.collectAsState()
 
             MyNotesTheme(darkTheme = isDarkTheme ?: isSystemInDarkTheme()) {
@@ -36,19 +32,6 @@ class MainActivity : ComponentActivity() {
                 ) {
                     NavGraph()
                 }
-            }
-        }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        handleIntent(intent)
-    }
-
-    private fun handleIntent(intent: Intent) {
-        intent.data?.let { uri ->
-            if (uri.scheme == "mynotes" && uri.host == "onedrive-auth") {
-                settingsViewModel?.handleAuthRedirect(uri)
             }
         }
     }
