@@ -7,11 +7,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -226,11 +221,15 @@ fun CanvasView(
                                  onSelectionMove(selectionOffset)
                                  onMoveCommit()
                                  selectionOffset = Offset.Zero
+                                 lassoPathPoints = emptyList()
                                  return@awaitEachGesture
                              }
                          }
 
-                         if (effectiveTool == CanvasTool.LASSO) onClearSelection()
+                         if (effectiveTool == CanvasTool.LASSO) {
+                             lassoPathPoints = emptyList()
+                             onClearSelection()
+                         }
 
                          isDrawing = true
                          currentStrokePoints.clear(); currentStrokePoints.add(startPos)
@@ -295,8 +294,9 @@ fun CanvasView(
                                      currentStrokePoints.takeLast(minOf(8, currentStrokePoints.size))
                                          .any { (it - currentStrokePoints.first()).getDistance() < closeThreshold }
                                  if (isClosed) {
-                                     lassoPathPoints = currentStrokePoints
-                                     onLassoComplete(currentStrokePoints)
+                                     val snapshot = currentStrokePoints.toList()
+                                     lassoPathPoints = snapshot
+                                     onLassoComplete(snapshot)
                                  } else {
                                      lassoPathPoints = emptyList()
                                      onClearSelection()
@@ -307,8 +307,8 @@ fun CanvasView(
                                      else -> "#%08X".format(currentColorState.value.toArgb())
                                  }
                                  onStrokeAdded(StrokeData(
-                                     points = currentStrokePoints,
-                                     pressures = currentPressures,
+                                     points = currentStrokePoints.toList(),
+                                     pressures = currentPressures.toList(),
                                      color = colorHex,
                                      strokeWidth = currentStrokeWidthState.value,
                                      tool = effectiveTool.name.lowercase(),
@@ -387,47 +387,8 @@ fun CanvasView(
              )
          }
 
-         // Navigation Controls
-         Surface(
-             modifier = Modifier
-                 .align(Alignment.BottomEnd)
-                 .padding(16.dp),
-             color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.8f),
-             shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-             shadowElevation = 4.dp
-         ) {
-             Column(
-                 modifier = Modifier.padding(8.dp),
-                 horizontalAlignment = Alignment.CenterHorizontally
-             ) {
-                 IconButton(onClick = { panOffset += Offset(0f, 100f) }) {
-                     Icon(Icons.Default.KeyboardArrowUp, "Pan Up")
-                 }
-                 Row(verticalAlignment = Alignment.CenterVertically) {
-                     IconButton(onClick = { panOffset += Offset(100f, 0f) }) {
-                         Icon(Icons.Default.KeyboardArrowLeft, "Pan Left")
-                     }
-                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                         IconButton(onClick = { zoomScale *= 1.1f }) {
-                             Icon(Icons.Default.Add, "Zoom In")
-                         }
-                         IconButton(onClick = { zoomScale /= 1.1f }) {
-                             Icon(Icons.Default.Remove, "Zoom Out")
-                         }
-                     }
-                     IconButton(onClick = { panOffset -= Offset(100f, 0f) }) {
-                         Icon(Icons.Default.KeyboardArrowRight, "Pan Right")
-                     }
-                 }
-                 IconButton(onClick = { panOffset -= Offset(0f, 100f) }) {
-                     Icon(Icons.Default.KeyboardArrowDown, "Pan Down")
-                 }
-             }
-         }
      }
 }
-
-private fun Offset.getDistance() = kotlin.math.sqrt(x * x + y * y)
 
 private fun isPointNearStroke(point: Offset, stroke: StrokeData): Boolean {
     val threshold = stroke.strokeWidth + 20f

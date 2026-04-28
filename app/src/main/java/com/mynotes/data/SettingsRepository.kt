@@ -57,8 +57,8 @@ class SettingsRepository @Inject constructor(
         val exportFolderUri = exportFolderUri.first()
         return if (exportFolderUri != null && exportFolderUri.isNotBlank()) {
             val uri = Uri.parse(exportFolderUri)
-            if (uri.scheme == "file") {
-                File(uri.path)
+            if (uri.scheme == "file" && uri.path != null) {
+                File(uri.path!!)
             } else {
                 context.filesDir
             }
