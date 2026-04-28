@@ -1,16 +1,20 @@
 package com.mynotes.data
 
 import android.content.Context
+import android.net.Uri
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.io.File
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -19,11 +23,11 @@ class SettingsRepository @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val DARK_THEME_KEY = booleanPreferencesKey("dark_theme")
-    private val DEFAULT_FONT_FAMILY_KEY = androidx.datastore.preferences.core.stringPreferencesKey("default_font_family")
-    private val ONEDRIVE_ACCESS_TOKEN_KEY = androidx.datastore.preferences.core.stringPreferencesKey("onedrive_access_token")
-    private val ONEDRIVE_FOLDER_ID_KEY = androidx.datastore.preferences.core.stringPreferencesKey("onedrive_folder_id")
-    private val ONEDRIVE_FOLDER_NAME_KEY = androidx.datastore.preferences.core.stringPreferencesKey("onedrive_folder_name")
-    private val EXPORT_FOLDER_URI_KEY = androidx.datastore.preferences.core.stringPreferencesKey("export_folder_uri")
+    private val DEFAULT_FONT_FAMILY_KEY = stringPreferencesKey("default_font_family")
+    private val ONEDRIVE_ACCESS_TOKEN_KEY = stringPreferencesKey("onedrive_access_token")
+    private val ONEDRIVE_FOLDER_ID_KEY = stringPreferencesKey("onedrive_folder_id")
+    private val ONEDRIVE_FOLDER_NAME_KEY = stringPreferencesKey("onedrive_folder_name")
+    private val EXPORT_FOLDER_URI_KEY = stringPreferencesKey("export_folder_uri")
 
     val isDarkTheme: Flow<Boolean?> = context.dataStore.data.map { preferences ->
         preferences[DARK_THEME_KEY]
@@ -47,6 +51,20 @@ class SettingsRepository @Inject constructor(
 
     val exportFolderUri: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[EXPORT_FOLDER_URI_KEY]
+    }
+
+    suspend fun getExportDirectory(): File {
+        val exportFolderUri = exportFolderUri.first()
+        return if (exportFolderUri != null && exportFolderUri.isNotBlank()) {
+            val uri = Uri.parse(exportFolderUri)
+            if (uri.scheme == "file") {
+                File(uri.path)
+            } else {
+                context.filesDir
+            }
+        } else {
+            context.filesDir
+        }
     }
 
     suspend fun setDarkTheme(isDark: Boolean?) {

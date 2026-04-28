@@ -108,3 +108,5 @@ gradle-app.setting
 
 # Timber/Logging output
 # (debug logs, etc. - usually not committed)
+
+.claude/

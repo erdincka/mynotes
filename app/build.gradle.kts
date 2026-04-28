@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlin.serialization)
@@ -34,11 +33,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
-        }
-    }
+
 
     buildFeatures {
         compose = true
@@ -82,6 +77,7 @@ dependencies {
     implementation(libs.msal) {
         exclude(group = "io.opentelemetry")
     }
+
 
     // Hilt
     implementation(libs.hilt.android)
