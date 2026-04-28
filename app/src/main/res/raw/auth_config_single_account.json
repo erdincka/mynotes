@@ -1,0 +1,20 @@
+{
+  "client_id": "9c07213f-db1e-44d4-94dd-662e04efaf85",
+  "authorization_user_agent": "DEFAULT",
+  "redirect_uri": "msauth://com.mynotes/REPLACE_WITH_BASE64_SHA1_OF_SIGNING_CERT",
+  "broker_redirect_uri_registered": false,
+  "account_mode": "SINGLE",
+  "authorities": [
+    {
+      "type": "AAD",
+      "audience": {
+        "type": "AzureADandPersonalMicrosoftAccount",
+        "tenant_id": "common"
+      }
+    }
+  ],
+  "http": {
+    "connect_timeout": 10000,
+    "read_timeout": 30000
+  }
+}

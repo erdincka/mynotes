@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.mynotes.ui.SettingsViewModel
 import com.mynotes.ui.canvas.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,11 +41,25 @@ fun NoteScreen(
     val strokes by viewModel.strokes.collectAsState()
     var lastSavedStrokes by remember { mutableStateOf<List<StrokeData>?>(null) }
     
-    // Initialize lastSavedStrokes when strokes are first loaded
+    // Initialize lastSavedStrokes when strokes are first loaded from DB
     LaunchedEffect(strokes) {
         if (lastSavedStrokes == null && strokes.isNotEmpty()) {
             lastSavedStrokes = strokes
         }
+    }
+
+    // Auto-save 3 seconds after last stroke change
+    LaunchedEffect(strokes) {
+        if (lastSavedStrokes != null && strokes != lastSavedStrokes) {
+            delay(3000)
+            viewModel.saveNote()
+            lastSavedStrokes = strokes
+        }
+    }
+
+    // Always save when leaving the screen so exports are up-to-date
+    DisposableEffect(Unit) {
+        onDispose { viewModel.saveNote() }
     }
 
     val hasUnsavedChanges = remember(strokes, lastSavedStrokes) {

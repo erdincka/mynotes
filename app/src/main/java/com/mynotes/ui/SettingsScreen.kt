@@ -1,8 +1,15 @@
 package com.mynotes.ui
 
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,15 +30,39 @@ fun SettingsScreen(
     val onedriveFolderName by viewModel.onedriveFolderName.collectAsState()
     val oneDriveFolders by viewModel.oneDriveFolders.collectAsState()
     val isConnecting by viewModel.isConnecting.collectAsState()
+    val exportFolderUri by viewModel.exportFolderUri.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
     val context = LocalContext.current
+    val activity = context as? ComponentActivity
 
     val systemInDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
     val currentIsDark = isDarkTheme ?: systemInDarkTheme
 
     var showFontDialog by remember { mutableStateOf(false) }
-    var showTokenDialog by remember { mutableStateOf(false) }
-    var tempToken by remember { mutableStateOf("") }
+
+    val folderPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        uri?.let {
+            context.contentResolver.takePersistableUriPermission(
+                it,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+            viewModel.setExportFolderUri(it.toString())
+        }
+    }
+
+    errorMessage?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearError() },
+            title = { Text("Error") },
+            text = { Text(msg) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearError() }) { Text("OK") }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -55,39 +86,101 @@ fun SettingsScreen(
                 Text("General Settings", style = MaterialTheme.typography.titleLarge)
                 Spacer(modifier = Modifier.height(16.dp))
             }
-            
+
+            // Local Export Folder
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Local Export Folder", style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = exportFolderUri?.let { uriStr ->
+                                runCatching { android.net.Uri.parse(uriStr).toReadablePath() }
+                                    .getOrDefault("Custom folder configured")
+                            } ?: "No folder selected — exports saved to app storage",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { folderPickerLauncher.launch(null) }) {
+                                Icon(
+                                    Icons.Default.Folder,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .padding(end = 4.dp)
+                                )
+                                Text("Choose Folder")
+                            }
+                            if (exportFolderUri != null) {
+                                TextButton(onClick = { viewModel.setExportFolderUri(null) }) {
+                                    Text("Clear")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // OneDrive Connection
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("OneDrive Sync", style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(4.dp))
                         if (onedriveAccessToken == null) {
-                            Text("Connect to your OneDrive to sync notes across devices.")
+                            Text(
+                                "Sign in with your Microsoft account to sync notes across devices.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             Spacer(modifier = Modifier.height(8.dp))
                             if (isConnecting) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                    Text("Signing in…", style = MaterialTheme.typography.bodySmall)
+                                }
                             } else {
-                                Button(onClick = { 
-                                    val oauthUrl = viewModel.getOAuthUrl()
-                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(oauthUrl))
-                                    context.startActivity(intent)
+                                Button(onClick = {
+                                    activity?.let { viewModel.signInOneDrive(it) }
                                 }) {
-                                    Text("Connect OneDrive")
+                                    Text("Sign in with Microsoft")
                                 }
                             }
                         } else {
-                            Text("Connected to OneDrive")
-                            Text("Target Folder: ${onedriveFolderName ?: "Not selected"}", style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                "Connected",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                "Sync folder: ${onedriveFolderName ?: "Not selected"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                             Spacer(modifier = Modifier.height(8.dp))
-                            Row {
-                                Button(onClick = { viewModel.refreshFolders() }) {
-                                    Text("Select Folder")
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (isConnecting) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                                } else {
+                                    Button(onClick = { viewModel.refreshFolders() }) {
+                                        Text("Change Folder")
+                                    }
                                 }
-                                Spacer(modifier = Modifier.width(8.dp))
                                 TextButton(onClick = { viewModel.disconnectOneDrive() }) {
-                                    Text("Disconnect")
+                                    Text("Sign Out")
                                 }
                             }
                         }
@@ -97,7 +190,11 @@ fun SettingsScreen(
 
             if (onedriveAccessToken != null && oneDriveFolders.isNotEmpty()) {
                 item {
-                    Text("Select OneDrive Folder", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+                    Text(
+                        "Select Sync Folder",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
                 }
                 items(oneDriveFolders) { folder ->
                     ListItem(
@@ -105,7 +202,7 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         trailingContent = {
                             RadioButton(
-                                selected = false, // We don't have the selected folder ID easily here to compare
+                                selected = onedriveFolderName == folder.name,
                                 onClick = { viewModel.selectOneDriveFolder(folder) }
                             )
                         }
@@ -113,41 +210,38 @@ fun SettingsScreen(
                 }
             }
 
-            // Theme settings
+            // Theme
             item {
-                Text("Appearance", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
+                Text(
+                    "Appearance",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
                 ListItem(
                     headlineContent = { Text("Dark Theme") },
-                    supportingContent = { 
+                    supportingContent = {
                         Text(if (isDarkTheme == null) "System Default" else if (isDarkTheme == true) "On" else "Off")
                     },
-                    trailingContent = { 
-                        Switch(
-                            checked = currentIsDark, 
-                            onCheckedChange = { viewModel.setDarkTheme(it) }
-                        ) 
+                    trailingContent = {
+                        Switch(checked = currentIsDark, onCheckedChange = { viewModel.setDarkTheme(it) })
                     }
                 )
                 if (isDarkTheme != null) {
                     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                        TextButton(
-                            onClick = { viewModel.setDarkTheme(null) }
-                        ) {
+                        TextButton(onClick = { viewModel.setDarkTheme(null) }) {
                             Text("Reset to System Default")
                         }
                     }
                 }
             }
 
-            // Font settings
+            // Font
             item {
                 ListItem(
                     headlineContent = { Text("Default Font") },
                     supportingContent = { Text(defaultFontFamily) },
-                    trailingContent = { 
-                        TextButton(onClick = { showFontDialog = true }) { 
-                            Text("Change") 
-                        } 
+                    trailingContent = {
+                        TextButton(onClick = { showFontDialog = true }) { Text("Change") }
                     }
                 )
             }
@@ -163,11 +257,13 @@ fun SettingsScreen(
                     listOf("Default", "Serif", "SansSerif", "Monospace").forEach { font ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
                         ) {
                             RadioButton(
                                 selected = defaultFontFamily == font,
-                                onClick = { 
+                                onClick = {
                                     viewModel.setDefaultFontFamily(font)
                                     showFontDialog = false
                                 }
@@ -178,40 +274,6 @@ fun SettingsScreen(
                 }
             },
             confirmButton = {}
-        )
-    }
-
-    if (showTokenDialog) {
-        AlertDialog(
-            onDismissRequest = { showTokenDialog = false },
-            title = { Text("Connect OneDrive") },
-            text = {
-                Column {
-                    Text("Please enter your OneDrive Access Token:", style = MaterialTheme.typography.bodySmall)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = tempToken,
-                        onValueChange = { tempToken = it },
-                        label = { Text("Access Token") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (tempToken.isNotBlank()) {
-                        viewModel.connectOneDrive(tempToken)
-                        showTokenDialog = false
-                    }
-                }) {
-                    Text("Connect")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTokenDialog = false }) {
-                    Text("Cancel")
-                }
-            }
         )
     }
 }

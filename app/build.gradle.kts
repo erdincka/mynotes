@@ -19,6 +19,16 @@ android {
         versionName = "1.0"
     }
 
+    buildTypes {
+        debug {
+            isDebuggable = true
+        }
+        release {
+            isMinifyEnabled = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -32,6 +42,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -64,6 +75,14 @@ dependencies {
     // DataStore
     implementation(libs.androidx.datastore.preferences)
 
+    // DocumentFile (SAF helper)
+    implementation(libs.androidx.documentfile)
+
+    // MSAL (Microsoft Authentication Library for OneDrive OAuth)
+    implementation(libs.msal) {
+        exclude(group = "io.opentelemetry")
+    }
+
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
@@ -92,6 +111,7 @@ dependencies {
     // Logging
     implementation(libs.timber)
     debugImplementation(libs.chucker.okhttp)
+    releaseImplementation(libs.chucker.okhttp.no.op)
 
     // Testing
     testImplementation(libs.junit)

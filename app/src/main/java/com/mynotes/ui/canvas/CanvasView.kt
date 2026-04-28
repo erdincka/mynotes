@@ -42,6 +42,7 @@ import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.roundToInt
 
 @Composable
@@ -94,9 +95,13 @@ object OffsetSerializer : KSerializer<Offset> {
     }
 }
 
+// Monotonically increasing ID — prevents collisions from currentTimeMillis() within same ms
+private val _strokeIdCounter = AtomicLong(System.currentTimeMillis())
+internal fun nextStrokeId(): Long = _strokeIdCounter.incrementAndGet()
+
 @Serializable
 data class StrokeData(
-     val id: Long = System.currentTimeMillis(),
+     val id: Long = nextStrokeId(),
      val points: List<@Serializable(with = OffsetSerializer::class) Offset>,
      val pressures: List<Float> = emptyList(),
      val color: String = "#000000",
@@ -128,8 +133,8 @@ fun CanvasView(
      var panOffset by remember { mutableStateOf(Offset.Zero) }
      var zoomScale by remember { mutableFloatStateOf(1f) }
      
-     var currentStrokePoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
-     var currentPressures by remember { mutableStateOf<List<Float>>(emptyList()) }
+     val currentStrokePoints = remember { mutableStateListOf<Offset>() }
+     val currentPressures = remember { mutableStateListOf<Float>() }
      var isDrawing by remember { mutableStateOf(false) }
      
      var lassoPathPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
@@ -188,14 +193,12 @@ fun CanvasView(
                  .pointerInput(Unit) {
                      awaitEachGesture {
                          val firstDown = awaitFirstDown(requireUnconsumed = false)
-                         
-                         // Single touch/stylus tool action: consume to prevent any other interaction
                          firstDown.consume()
-                         
+
                          val toolType = firstDown.type
                          val effectiveTool = if (toolType == PointerType.Eraser) CanvasTool.ERASER else currentToolState.value
                          val startPos = (firstDown.position - currentPanOffsetState.value) / currentZoomScaleState.value
-                         
+
                          if (effectiveTool == CanvasTool.TEXT) {
                              if (textPosition != null) commitText()
                              textPosition = startPos
@@ -211,7 +214,6 @@ fun CanvasView(
                                  do {
                                      val event = awaitPointerEvent()
                                      if (event.changes.size > 1) break
-                                     
                                      val change = event.changes.firstOrNull { it.id == firstDown.id }
                                      if (change != null && change.pressed) {
                                          val currentPos = (change.position - currentPanOffsetState.value) / currentZoomScaleState.value
@@ -221,7 +223,6 @@ fun CanvasView(
                                          change.consume()
                                      }
                                  } while (event.changes.any { it.pressed && it.id == firstDown.id })
-                                 
                                  onSelectionMove(selectionOffset)
                                  onMoveCommit()
                                  selectionOffset = Offset.Zero
@@ -229,15 +230,12 @@ fun CanvasView(
                              }
                          }
 
-                         // If we didn't move selection, start new drawing/lasso
-                         if (effectiveTool == CanvasTool.LASSO) {
-                             onClearSelection()
-                         }
+                         if (effectiveTool == CanvasTool.LASSO) onClearSelection()
 
                          isDrawing = true
-                         currentStrokePoints = listOf(startPos)
-                         currentPressures = listOf(firstDown.pressure)
-                         
+                         currentStrokePoints.clear(); currentStrokePoints.add(startPos)
+                         currentPressures.clear(); currentPressures.add(firstDown.pressure)
+
                          if (effectiveTool == CanvasTool.ERASER) {
                              onEraserStart()
                              onEraserAction(startPos, currentStrokeWidthState.value / currentZoomScaleState.value)
@@ -245,23 +243,57 @@ fun CanvasView(
 
                          do {
                              val event = awaitPointerEvent()
+
+                             // Two-finger touch: cancel current stroke and switch to pan/zoom
+                             if (event.changes.count { it.pressed } >= 2) {
+                                 isDrawing = false
+                                 currentStrokePoints.clear()
+                                 currentPressures.clear()
+
+                                 val two = event.changes.filter { it.pressed }
+                                 var prevFocal = (two[0].position + two[1].position) / 2f
+                                 var prevSpan = (two[0].position - two[1].position).getDistance()
+                                 event.changes.forEach { it.consume() }
+
+                                 do {
+                                     val mEvent = awaitPointerEvent()
+                                     val fingers = mEvent.changes.filter { it.pressed }
+                                     if (fingers.size >= 2) {
+                                         val focal = (fingers[0].position + fingers[1].position) / 2f
+                                         val span = (fingers[0].position - fingers[1].position).getDistance()
+                                         val scaleFactor = if (prevSpan > 0f) span / prevSpan else 1f
+                                         val oldZoom = zoomScale
+                                         val newZoom = (oldZoom * scaleFactor).coerceIn(0.1f, 10f)
+                                         val actualFactor = newZoom / oldZoom
+                                         panOffset = focal - (prevFocal - panOffset) * actualFactor
+                                         zoomScale = newZoom
+                                         prevFocal = focal
+                                         prevSpan = span
+                                         fingers.forEach { it.consume() }
+                                     }
+                                 } while (mEvent.changes.any { it.pressed })
+
+                                 return@awaitEachGesture
+                             }
+
                              val change = event.changes.firstOrNull { it.id == firstDown.id }
                              if (change != null && change.pressed) {
                                  val pos = (change.position - currentPanOffsetState.value) / currentZoomScaleState.value
-                                 currentStrokePoints = currentStrokePoints + pos
-                                 currentPressures = currentPressures + change.pressure
-                                 
+                                 currentStrokePoints.add(pos)
+                                 currentPressures.add(change.pressure)
                                  if (effectiveTool == CanvasTool.ERASER) {
                                      onEraserAction(pos, currentStrokeWidthState.value / currentZoomScaleState.value)
                                  }
-                                 
                                  change.consume()
                              }
                          } while (event.changes.any { it.pressed && it.id == firstDown.id })
-                         
+
                          if (isDrawing && currentStrokePoints.size > 1) {
                              if (effectiveTool == CanvasTool.LASSO) {
-                                 val isClosed = (currentStrokePoints.first() - currentStrokePoints.last()).getDistance() < 50f
+                                 val closeThreshold = 80f / zoomScale
+                                 val isClosed = currentStrokePoints.size > 3 &&
+                                     currentStrokePoints.takeLast(minOf(8, currentStrokePoints.size))
+                                         .any { (it - currentStrokePoints.first()).getDistance() < closeThreshold }
                                  if (isClosed) {
                                      lassoPathPoints = currentStrokePoints
                                      onLassoComplete(currentStrokePoints)
@@ -270,12 +302,11 @@ fun CanvasView(
                                      onClearSelection()
                                  }
                              } else if (effectiveTool != CanvasTool.ERASER) {
-                                 val colorHex = when(effectiveTool) {
+                                 val colorHex = when (effectiveTool) {
                                      CanvasTool.HIGHLIGHTER -> "#40%06X".format(currentColorState.value.toArgb() and 0xFFFFFF)
                                      else -> "#%08X".format(currentColorState.value.toArgb())
                                  }
-                                 
-                                 val newStroke = StrokeData(
+                                 onStrokeAdded(StrokeData(
                                      points = currentStrokePoints,
                                      pressures = currentPressures,
                                      color = colorHex,
@@ -283,14 +314,13 @@ fun CanvasView(
                                      tool = effectiveTool.name.lowercase(),
                                      fontSize = currentFontSizeState.value,
                                      fontFamily = currentFontFamilyState.value
-                                 )
-                                 onStrokeAdded(newStroke)
+                                 ))
                              }
                          }
-                         
+
                          isDrawing = false
-                         currentStrokePoints = emptyList()
-                         currentPressures = emptyList()
+                         currentStrokePoints.clear()
+                         currentPressures.clear()
                      }
                  }
          ) {
@@ -433,57 +463,96 @@ private fun DrawScope.drawGrid() {
 }
 
 private fun DrawScope.drawStrokePath(
-    stroke: StrokeData, 
-    isSelected: Boolean, 
-    isDarkTheme: Boolean, 
+    stroke: StrokeData,
+    isSelected: Boolean,
+    isDarkTheme: Boolean,
     density: androidx.compose.ui.unit.Density,
     previewOffset: Offset = Offset.Zero
 ) {
-     val baseColor = try { Color(AndroidColor.parseColor(stroke.color)) } catch (_: Exception) { Color.Black }
-     val toolColor = if (isDarkTheme) invertColor(baseColor) else baseColor
-     val color = if (isSelected) Color.Blue else toolColor
-     
-     if (stroke.tool == "text" && stroke.text != null && stroke.points.isNotEmpty()) {
-         val textSizePx = with(density) { stroke.fontSize.sp.toPx() }
-         drawContext.canvas.nativeCanvas.drawText(
-             stroke.text, 
-             stroke.points[0].x + previewOffset.x, 
-             stroke.points[0].y + (textSizePx * 0.8f) + previewOffset.y,
-             android.graphics.Paint().apply {
-                 this.color = color.toArgb()
-                 this.textSize = textSizePx
-                 this.isAntiAlias = true
-                 this.typeface = when(stroke.fontFamily) {
-                     "Serif" -> android.graphics.Typeface.SERIF
-                     "SansSerif" -> android.graphics.Typeface.SANS_SERIF
-                     "Monospace" -> android.graphics.Typeface.MONOSPACE
-                     else -> android.graphics.Typeface.DEFAULT
-                 }
-             }
-         )
-         return
-     }
+    val baseColor = try { Color(AndroidColor.parseColor(stroke.color)) } catch (_: Exception) { Color.Black }
+    val toolColor = if (isDarkTheme) invertColor(baseColor) else baseColor
+    val color = if (isSelected) Color.Blue else toolColor
 
-     if (stroke.points.isEmpty()) return
-     val path = Path().apply {
-         moveTo(stroke.points[0].x + previewOffset.x, stroke.points[0].y + previewOffset.y)
-         for (i in 1 until stroke.points.size) {
-             lineTo(stroke.points[i].x + previewOffset.x, stroke.points[i].y + previewOffset.y)
-         }
-     }
-     
-     val style = if (stroke.tool == "lasso") {
-         Stroke(width = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
-     } else {
-         val width = if (isSelected) stroke.strokeWidth + 2f else stroke.strokeWidth
-         Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round)
-     }
-     
-     if (isSelected) {
-         drawPath(path, Color.Blue.copy(alpha = 0.2f), style = Stroke(width = stroke.strokeWidth + 10f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-     }
-     
-     drawPath(path, color, style = style)
+    if (stroke.tool == "text" && stroke.text != null && stroke.points.isNotEmpty()) {
+        val textSizePx = with(density) { stroke.fontSize.sp.toPx() }
+        drawContext.canvas.nativeCanvas.drawText(
+            stroke.text,
+            stroke.points[0].x + previewOffset.x,
+            stroke.points[0].y + (textSizePx * 0.8f) + previewOffset.y,
+            android.graphics.Paint().apply {
+                this.color = color.toArgb()
+                this.textSize = textSizePx
+                this.isAntiAlias = true
+                this.typeface = when (stroke.fontFamily) {
+                    "Serif" -> android.graphics.Typeface.SERIF
+                    "SansSerif" -> android.graphics.Typeface.SANS_SERIF
+                    "Monospace" -> android.graphics.Typeface.MONOSPACE
+                    else -> android.graphics.Typeface.DEFAULT
+                }
+            }
+        )
+        return
+    }
+
+    if (stroke.points.isEmpty()) return
+
+    val useSmoothCurve = stroke.tool in setOf("pen", "brush", "highlighter") && stroke.points.size >= 3
+    val path = if (useSmoothCurve) {
+        catmullRomPath(stroke.points, previewOffset)
+    } else {
+        Path().apply {
+            moveTo(stroke.points[0].x + previewOffset.x, stroke.points[0].y + previewOffset.y)
+            for (i in 1 until stroke.points.size) {
+                lineTo(stroke.points[i].x + previewOffset.x, stroke.points[i].y + previewOffset.y)
+            }
+        }
+    }
+
+    val style = if (stroke.tool == "lasso") {
+        Stroke(width = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
+    } else {
+        val width = if (isSelected) stroke.strokeWidth + 2f else stroke.strokeWidth
+        Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round)
+    }
+
+    if (isSelected) {
+        drawPath(
+            path,
+            Color.Blue.copy(alpha = 0.2f),
+            style = Stroke(width = stroke.strokeWidth + 10f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+    }
+
+    drawPath(path, color, style = style)
+}
+
+/**
+ * Builds a smooth Catmull-Rom spline path through [points], converted to cubic Bézier segments.
+ * Conversion: b1 = P1 + (P2−P0)/6,  b2 = P2 − (P3−P1)/6
+ */
+private fun catmullRomPath(points: List<Offset>, offset: Offset): Path {
+    val path = Path()
+    path.moveTo(points[0].x + offset.x, points[0].y + offset.y)
+    if (points.size < 3) {
+        for (i in 1 until points.size) {
+            path.lineTo(points[i].x + offset.x, points[i].y + offset.y)
+        }
+        return path
+    }
+    for (i in 0 until points.size - 1) {
+        val p0 = points[if (i > 0) i - 1 else 0]
+        val p1 = points[i]
+        val p2 = points[i + 1]
+        val p3 = points[if (i + 2 < points.size) i + 2 else points.size - 1]
+
+        val b1x = p1.x + (p2.x - p0.x) / 6f + offset.x
+        val b1y = p1.y + (p2.y - p0.y) / 6f + offset.y
+        val b2x = p2.x - (p3.x - p1.x) / 6f + offset.x
+        val b2y = p2.y - (p3.y - p1.y) / 6f + offset.y
+
+        path.cubicTo(b1x, b1y, b2x, b2y, p2.x + offset.x, p2.y + offset.y)
+    }
+    return path
 }
 
 private fun DrawScope.drawCurrentStroke(
