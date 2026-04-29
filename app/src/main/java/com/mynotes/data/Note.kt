@@ -14,6 +14,5 @@ data class Note(
     val folderId: Long,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val category: String = "default",
-    val isSynced: Boolean = false
+    val category: String = "default"
 )

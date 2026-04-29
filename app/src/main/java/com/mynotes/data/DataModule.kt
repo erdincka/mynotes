@@ -21,7 +21,7 @@ object DataModule {
             MyNotesDatabase::class.java,
             MyNotesDatabase.DATABASE_NAME
         )
-        .addMigrations(MyNotesDatabase.MIGRATION_1_2)
+        .addMigrations(MyNotesDatabase.MIGRATION_1_2, MyNotesDatabase.MIGRATION_2_3)
         .fallbackToDestructiveMigration()
         .build()
     }

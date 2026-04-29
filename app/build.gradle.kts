@@ -38,8 +38,6 @@ android {
         jvmTarget = "17"
     }
 
-
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -58,6 +56,8 @@ hilt {
 
 dependencies {
     // Core & Lifecycle
+    implementation(libs.androidx.appcompat)
+    implementation(libs.material)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -82,41 +82,21 @@ dependencies {
     // DocumentFile (SAF helper)
     implementation(libs.androidx.documentfile)
 
-    // MSAL (Microsoft Authentication Library for OneDrive OAuth)
-    implementation(libs.msal) {
-        exclude(group = "io.opentelemetry")
-    }
-
-
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
-    implementation(libs.hilt.work)
-    ksp(libs.androidx.hilt.compiler)
 
     // Room
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
 
-    // Ktor & Networking
-    implementation(libs.ktor.client.core)
-    implementation(libs.ktor.client.okhttp)
-    implementation(libs.ktor.client.content.negotiation)
-    implementation(libs.ktor.serialization.kotlinx.json)
-    implementation(libs.ktor.client.logging)
-
-    // Serialization
+    // Serialization (stroke data)
     implementation(libs.kotlinx.serialization.json)
-
-    // WorkManager (for background sync)
-    implementation(libs.androidx.work.runtime.ktx)
 
     // Logging
     implementation(libs.timber)
-    debugImplementation(libs.chucker.okhttp)
-    releaseImplementation(libs.chucker.okhttp.no.op)
 
     // Testing
     testImplementation(libs.junit)

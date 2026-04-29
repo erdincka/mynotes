@@ -2,12 +2,10 @@ package com.mynotes.ui
 
 import android.content.Intent
 import android.net.Uri
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.*
@@ -26,15 +24,10 @@ fun SettingsScreen(
 ) {
     val isDarkTheme by viewModel.isDarkTheme.collectAsState()
     val defaultFontFamily by viewModel.defaultFontFamily.collectAsState()
-    val onedriveAccessToken by viewModel.onedriveAccessToken.collectAsState()
-    val onedriveFolderName by viewModel.onedriveFolderName.collectAsState()
-    val oneDriveFolders by viewModel.oneDriveFolders.collectAsState()
-    val isConnecting by viewModel.isConnecting.collectAsState()
     val exportFolderUri by viewModel.exportFolderUri.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
     val context = LocalContext.current
-    val activity = context as? ComponentActivity
 
     val systemInDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
     val currentIsDark = isDarkTheme ?: systemInDarkTheme
@@ -124,89 +117,6 @@ fun SettingsScreen(
                             }
                         }
                     }
-                }
-            }
-
-            // OneDrive Connection
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("OneDrive Sync", style = MaterialTheme.typography.titleMedium)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        if (onedriveAccessToken == null) {
-                            Text(
-                                "Sign in with your Microsoft account to sync notes across devices.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            if (isConnecting) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                                    Text("Signing in…", style = MaterialTheme.typography.bodySmall)
-                                }
-                            } else {
-                                Button(onClick = {
-                                    activity?.let { viewModel.signInOneDrive(it) }
-                                }) {
-                                    Text("Sign in with Microsoft")
-                                }
-                            }
-                        } else {
-                            Text(
-                                "Connected",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                "Sync folder: ${onedriveFolderName ?: "Not selected"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (isConnecting) {
-                                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                                } else {
-                                    Button(onClick = { viewModel.refreshFolders() }) {
-                                        Text("Change Folder")
-                                    }
-                                }
-                                TextButton(onClick = { viewModel.disconnectOneDrive() }) {
-                                    Text("Sign Out")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (onedriveAccessToken != null && oneDriveFolders.isNotEmpty()) {
-                item {
-                    Text(
-                        "Select Sync Folder",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-                items(oneDriveFolders) { folder ->
-                    ListItem(
-                        headlineContent = { Text(folder.name) },
-                        modifier = Modifier.fillMaxWidth(),
-                        trailingContent = {
-                            RadioButton(
-                                selected = onedriveFolderName == folder.name,
-                                onClick = { viewModel.selectOneDriveFolder(folder) }
-                            )
-                        }
-                    )
                 }
             }
 

@@ -27,12 +27,4 @@ class FolderRepository @Inject constructor(
     suspend fun delete(folder: Folder) = withContext(Dispatchers.IO) {
         folderDao.delete(folder)
     }
-
-    suspend fun markAsSynced(id: Long) = withContext(Dispatchers.IO) {
-        folderDao.markAsSynced(id)
-    }
-
-    suspend fun markAsUnsynced(id: Long) = withContext(Dispatchers.IO) {
-        folderDao.markAsUnsynced(id)
-    }
 }

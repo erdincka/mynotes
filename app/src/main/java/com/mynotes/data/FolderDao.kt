@@ -9,36 +9,30 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface FolderDao {
-     @Insert
+    @Insert
     suspend fun insert(folder: Folder): Long
 
-     @Update
+    @Update
     suspend fun update(folder: Folder)
 
-     @Delete
+    @Delete
     suspend fun delete(folder: Folder)
 
-     @Query("SELECT * FROM folders WHERE id = :id")
+    @Query("SELECT * FROM folders WHERE id = :id")
     suspend fun getFolderById(id: Long): Folder?
 
-     @Query("SELECT * FROM folders WHERE parentId = :parentId ORDER BY name ASC")
+    @Query("SELECT * FROM folders WHERE parentId = :parentId ORDER BY name ASC")
     fun getFoldersByParent(parentId: Long?): Flow<List<Folder>>
 
-     @Query("SELECT * FROM folders ORDER BY parentId ASC, name ASC")
+    @Query("SELECT * FROM folders ORDER BY parentId ASC, name ASC")
     fun getAllFolders(): Flow<List<Folder>>
 
-     @Query("SELECT * FROM folders WHERE name LIKE '%' || :query || '%' ORDER BY name ASC")
+    @Query("SELECT * FROM folders WHERE name LIKE '%' || :query || '%' ORDER BY name ASC")
     fun searchFolders(query: String): Flow<List<Folder>>
 
-     @Query("UPDATE folders SET parentId = :newParentId, updatedAt = :timestamp WHERE id = :folderId")
+    @Query("UPDATE folders SET parentId = :newParentId, updatedAt = :timestamp WHERE id = :folderId")
     suspend fun moveFolderTo(folderId: Long, newParentId: Long?, timestamp: Long = System.currentTimeMillis())
 
-     @Query("DELETE FROM folders WHERE parentId = :parentId")
+    @Query("DELETE FROM folders WHERE parentId = :parentId")
     suspend fun deleteChildFolders(parentId: Long)
-
-     @Query("UPDATE folders SET isSynced = 1, updatedAt = :timestamp WHERE id = :id")
-    suspend fun markAsSynced(id: Long, timestamp: Long = System.currentTimeMillis())
-
-     @Query("UPDATE folders SET isSynced = 0 WHERE id = :id")
-    suspend fun markAsUnsynced(id: Long)
 }

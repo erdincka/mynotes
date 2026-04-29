@@ -2,9 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-
     <application
         android:name=".MyNotesApplication"
         android:allowBackup="true"
@@ -27,39 +24,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <!--
-            MSAL redirect activity. The android:path must match the base64-encoded SHA1
-            of your signing certificate, which you set in auth_config_single_account.json.
-            Get it with:
-              keytool -exportcert -alias androiddebugkey \
-                -keystore ~/.android/debug.keystore | openssl sha1 -binary | openssl base64
-        -->
-        <activity
-            android:name="com.microsoft.identity.client.BrowserTabActivity"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="msauth"
-                    android:host="com.mynotes"
-                    android:path="/REPLACE_WITH_BASE64_SHA1_OF_SIGNING_CERT" />
-            </intent-filter>
-        </activity>
-
-        <!-- Disable WorkManager's default auto-init so HiltWorkerFactory is used instead -->
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="${applicationId}.androidx-startup"
-            android:exported="false"
-            tools:node="merge">
-            <meta-data
-                android:name="androidx.work.WorkManagerInitializer"
-                android:value="androidx.startup.InitializationProvider"
-                tools:node="remove" />
-        </provider>
 
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.mynotes.data.Note
 import com.mynotes.data.NoteRepository
-import com.mynotes.sync.SyncScheduler
 import com.mynotes.ui.canvas.StrokeData
 import com.mynotes.ui.canvas.nextStrokeId
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,8 +17,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class NoteViewModel @Inject constructor(
-    private val noteRepository: NoteRepository,
-    private val syncScheduler: SyncScheduler
+    private val noteRepository: NoteRepository
 ) : ViewModel() {
     private val _note = MutableStateFlow<Note?>(null)
     val note: StateFlow<Note?> = _note
@@ -54,11 +52,9 @@ class NoteViewModel @Inject constructor(
             noteRepository.update(
                 currentNote.copy(
                     content = content,
-                    updatedAt = System.currentTimeMillis(),
-                    isSynced = false
+                    updatedAt = System.currentTimeMillis()
                 )
             )
-            syncScheduler.scheduleSync(immediate = false)
         }
     }
 

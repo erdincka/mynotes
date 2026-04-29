@@ -733,15 +733,6 @@ fun FolderItem(
                 style = MaterialTheme.typography.bodyLarge,
                 fontWeight = FontWeight.Bold
             )
-            Icon(
-                imageVector = if (folder.isSynced) Icons.Default.CloudDone else Icons.Default.CloudUpload,
-                contentDescription = if (folder.isSynced) "Synced" else "Not synced",
-                tint = if (folder.isSynced)
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                else
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                modifier = Modifier.size(16.dp)
-            )
             IconButton(onClick = onCreateNote) {
                 Icon(Icons.Default.Add, contentDescription = "Add Note", modifier = Modifier.size(20.dp))
             }
@@ -836,15 +827,6 @@ fun NoteItem(
                     )
                 }
             }
-            Icon(
-                imageVector = if (note.isSynced) Icons.Default.CloudDone else Icons.Default.CloudUpload,
-                contentDescription = if (note.isSynced) "Synced" else "Not synced",
-                tint = if (note.isSynced)
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                else
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                modifier = Modifier.size(18.dp)
-            )
             IconButton(onClick = onRename) {
                 Icon(Icons.Default.Edit, contentDescription = "Rename", modifier = Modifier.size(20.dp))
             }

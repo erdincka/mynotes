@@ -28,12 +28,4 @@ class NoteRepository @Inject constructor(private val noteDao: NoteDao) {
     suspend fun delete(note: Note) = withContext(Dispatchers.IO) {
         noteDao.delete(note)
     }
-
-    suspend fun markAsSynced(id: Long) = withContext(Dispatchers.IO) {
-        noteDao.markAsSynced(id)
-    }
-
-    suspend fun markAsUnsynced(id: Long) = withContext(Dispatchers.IO) {
-        noteDao.markAsUnsynced(id)
-    }
 }

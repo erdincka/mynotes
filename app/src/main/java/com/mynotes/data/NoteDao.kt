@@ -29,10 +29,4 @@ interface NoteDao {
 
     @Query("SELECT * FROM notes WHERE name LIKE '%' || :query || '%' ORDER BY updatedAt DESC")
     fun searchNotes(query: String): Flow<List<Note>>
-
-    @Query("UPDATE notes SET isSynced = 1, updatedAt = :timestamp WHERE id = :id")
-    suspend fun markAsSynced(id: Long, timestamp: Long = System.currentTimeMillis())
-
-    @Query("UPDATE notes SET isSynced = 0 WHERE id = :id")
-    suspend fun markAsUnsynced(id: Long)
 }
