@@ -8,11 +8,11 @@ plugins {
 }
 
 android {
-    namespace = "com.mynotes"
+    namespace = "uk.kayalab.mynotes"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.mynotes"
+        applicationId = "uk.kayalab.mynotes"
         minSdk = 24
         targetSdk = 35
         versionCode = 1

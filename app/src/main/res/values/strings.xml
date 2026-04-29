@@ -62,22 +62,10 @@
     <string name="text_list">List</string>
     <string name="text_checkbox">Checkbox</string>
 
-    <!-- Sync Status -->
-    <string name="sync_syncing">Syncing...</string>
-    <string name="sync_synced">Synced</string>
-    <string name="sync_failed">Sync failed</string>
-    <string name="sync_network_error">Network error</string>
-    <string name="sync_onedrive_auth_error">OneDrive authentication failed</string>
-    <string name="sync_in_progress">Sync in progress</string>
-    <string name="sync_complete">Sync complete</string>
-    <string name="btn_sync_now">Sync Now</string>
-    <string name="btn_stop_sync">Stop Sync</string>
-
     <!-- Error Messages -->
     <string name="error_generic">An unexpected error occurred</string>
     <string name="error_network">Network error</string>
     <string name="error_storage">Storage error</string>
-    <string name="error_sync">Sync error</string>
     <string name="error_file_not_found">File not found</string>
     <string name="error_invalid_input">Invalid input</string>
 

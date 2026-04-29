@@ -20,7 +20,7 @@ The `.claude/worktrees/` directory is ephemeral; always commit and merge to `mai
 ## Project Structure
 
 ```
-app/src/main/java/com/mynotes/
+app/src/main/java/uk/kayalab/mynotes/
 ├── MainActivity.kt              # Single activity, hosts NavGraph
 ├── MyNotesApplication.kt        # @HiltAndroidApp + WorkManager/Hilt wiring
 ├── data/
@@ -101,7 +101,7 @@ automatically. This guarantees no strokes are accidentally omitted.
 
 ## OneDrive Setup (per developer)
 
-The app is pre-registered on Azure (`client_id` in `res/raw/auth_config_single_account.json`).
+The app is pre-registered on Azure (`client_id` placeholder in `res/raw/auth_config_single_account.json`).
 To enable sign-in on your machine you need to add your signing certificate hash:
 
 ```bash
