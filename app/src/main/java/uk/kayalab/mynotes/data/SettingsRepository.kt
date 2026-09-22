@@ -25,6 +25,7 @@ class SettingsRepository @Inject constructor(
     private val stylusPrimaryKey = stringPreferencesKey("stylus_primary_action")
     private val stylusSecondaryKey = stringPreferencesKey("stylus_secondary_action")
     private val stylusOnlyKey = booleanPreferencesKey("stylus_only")
+    private val defaultTemplateKey = stringPreferencesKey("default_template")
 
     val isDarkTheme: Flow<Boolean?> = context.dataStore.data.map { it[darkThemeKey] }
 
@@ -32,6 +33,9 @@ class SettingsRepository @Inject constructor(
         context.dataStore.data.map { it[defaultFontFamilyKey] ?: "Default" }
 
     val exportFolderUri: Flow<String?> = context.dataStore.data.map { it[exportFolderUriKey] }
+
+    val defaultTemplate: Flow<PageTemplate> =
+        context.dataStore.data.map { PageTemplate.fromName(it[defaultTemplateKey]) }
 
     val stylusConfig: Flow<StylusConfig> = context.dataStore.data.map { prefs ->
         val defaults = StylusConfig()
@@ -64,6 +68,10 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setStylusSecondaryAction(action: StylusButtonAction) {
         context.dataStore.edit { it[stylusSecondaryKey] = action.name }
+    }
+
+    suspend fun setDefaultTemplate(template: PageTemplate) {
+        context.dataStore.edit { it[defaultTemplateKey] = template.name }
     }
 
     suspend fun setStylusOnly(enabled: Boolean) {

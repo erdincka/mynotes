@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.data.StylusButtonAction
 import uk.kayalab.mynotes.export.toReadablePath
 
@@ -65,6 +66,7 @@ fun SettingsScreen(
     val defaultFontFamily by viewModel.defaultFontFamily.collectAsState()
     val exportFolderUri by viewModel.exportFolderUri.collectAsState()
     val stylusConfig by viewModel.stylusConfig.collectAsState()
+    val defaultTemplate by viewModel.defaultTemplate.collectAsState()
     val message by viewModel.message.collectAsState()
     val busy by viewModel.busy.collectAsState()
     val context = LocalContext.current
@@ -213,6 +215,27 @@ fun SettingsScreen(
                         TextButton(onClick = { viewModel.setDarkTheme(null) }) { Text("Follow the system") }
                     }
                 }
+                ListItem(
+                    headlineContent = { Text("Paper for new notes") },
+                    supportingContent = { Text(defaultTemplate.label) },
+                    trailingContent = {
+                        var expanded by remember { mutableStateOf(false) }
+                        Box {
+                            TextButton(onClick = { expanded = true }) { Text("Change") }
+                            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                                PageTemplate.entries.forEach { template ->
+                                    DropdownMenuItem(
+                                        text = { Text(template.label) },
+                                        onClick = {
+                                            viewModel.setDefaultTemplate(template)
+                                            expanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                )
                 ListItem(
                     headlineContent = { Text("Default text font") },
                     supportingContent = { Text(defaultFontFamily) },

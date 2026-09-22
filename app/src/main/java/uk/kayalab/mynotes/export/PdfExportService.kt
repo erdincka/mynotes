@@ -9,6 +9,7 @@ import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.ui.canvas.StrokeData
 import java.io.File
 import java.text.SimpleDateFormat
@@ -35,24 +36,24 @@ class PdfExportService @Inject constructor(
         return "$date-${noteName.toSafeFileName()}.pdf"
     }
 
-    suspend fun exportToFolder(noteName: String, strokes: List<StrokeData>, treeUri: String?): Outcome =
+    suspend fun exportToFolder(noteName: String, strokes: List<StrokeData>, treeUri: String?, template: PageTemplate = PageTemplate.PLAIN): Outcome =
         withContext(Dispatchers.IO) {
             val fileName = fileNameFor(noteName)
             runCatching {
-                if (treeUri != null) writeToTree(Uri.parse(treeUri), fileName, strokes)
-                else writeToAppStorage(fileName, strokes)
+                if (treeUri != null) writeToTree(Uri.parse(treeUri), fileName, strokes, template)
+                else writeToAppStorage(fileName, strokes, template)
             }.getOrElse { Outcome.Failed(it.message ?: it.javaClass.simpleName) }
         }
 
     /** Renders to the cache directory and opens the system share sheet. */
-    suspend fun share(noteName: String, strokes: List<StrokeData>): Outcome =
+    suspend fun share(noteName: String, strokes: List<StrokeData>, template: PageTemplate = PageTemplate.PLAIN): Outcome =
         withContext(Dispatchers.IO) {
             runCatching {
                 val dir = File(context.cacheDir, "shared_pdfs").apply { mkdirs() }
                 dir.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - ONE_DAY_MS }
                     ?.forEach { it.delete() }
                 val file = File(dir, fileNameFor(noteName))
-                file.outputStream().use { PdfRenderer.render(strokes, referenceWidth, it) }
+                file.outputStream().use { PdfRenderer.render(strokes, referenceWidth, it, template) }
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "application/pdf"
@@ -67,7 +68,7 @@ class PdfExportService @Inject constructor(
             }.getOrElse { Outcome.Failed(it.message ?: it.javaClass.simpleName) }
         }
 
-    private fun writeToTree(treeUri: Uri, fileName: String, strokes: List<StrokeData>): Outcome {
+    private fun writeToTree(treeUri: Uri, fileName: String, strokes: List<StrokeData>, template: PageTemplate): Outcome {
         val dir = DocumentFile.fromTreeUri(context, treeUri)
             ?: return Outcome.Failed("The export folder is no longer available. Choose it again in Settings.")
         dir.findFile(fileName)?.delete()
@@ -75,14 +76,14 @@ class PdfExportService @Inject constructor(
             ?: return Outcome.Failed("Could not create a file in the export folder.")
         val stream = context.contentResolver.openOutputStream(doc.uri)
             ?: return Outcome.Failed("Could not open the export folder for writing.")
-        stream.use { PdfRenderer.render(strokes, referenceWidth, it) }
+        stream.use { PdfRenderer.render(strokes, referenceWidth, it, template) }
         return Outcome.Saved(doc.uri, "${treeUri.toReadablePath()}/$fileName")
     }
 
-    private fun writeToAppStorage(fileName: String, strokes: List<StrokeData>): Outcome {
+    private fun writeToAppStorage(fileName: String, strokes: List<StrokeData>, template: PageTemplate): Outcome {
         val dir = File(context.getExternalFilesDir(null), "Exports").apply { mkdirs() }
         val file = File(dir, fileName)
-        file.outputStream().use { PdfRenderer.render(strokes, referenceWidth, it) }
+        file.outputStream().use { PdfRenderer.render(strokes, referenceWidth, it, template) }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
         return Outcome.Saved(uri, "App storage/Exports/$fileName")
     }

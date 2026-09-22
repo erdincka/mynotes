@@ -38,9 +38,10 @@ app/src/main/java/uk/kayalab/mynotes/
 ├── MainActivity.kt               # Single activity, applies theme, hosts NavGraph
 ├── MyNotesApplication.kt         # @HiltAndroidApp, Timber
 ├── data/
-│   ├── MyNotesDatabase.kt        # Room v4, migrations 1→2→3→4, schemas exported to app/schemas
+│   ├── MyNotesDatabase.kt        # Room v5, migrations 1→…→5, schemas exported to app/schemas
 │   ├── DataModule.kt             # Hilt: database + DAOs only (repositories are @Inject singletons)
-│   ├── Note.kt / NoteSummary.kt  # Entity (metadata + thumbnail); list projection with stroke count
+│   ├── Note.kt / NoteSummary.kt  # Entity (metadata, thumbnail, paper template); list projection
+│   ├── PageTemplate.kt           # Plain / grid / ruled / dotted, stored by name on the note
 │   ├── StrokeEntity.kt / StrokeDao.kt / StrokePacking.kt  # One row per stroke, float32 blobs
 │   ├── Folder.kt / FolderTree.kt # Entity; pure tree helpers (descendants, cycle guard, paths)
 │   ├── NoteDao.kt / FolderDao.kt # Id-based updates so the list never needs full entities
@@ -57,7 +58,7 @@ app/src/main/java/uk/kayalab/mynotes/
     ├── NavGraph.kt               # folders / note/{id} / settings
     ├── FolderListViewModel.kt    # List state, search, selection, delete confirmation, move guard
     ├── FolderListScreen.kt       # Tree or flat search results, dialogs
-    ├── FolderTreeItems.kt        # Row composables, overflow menus, Move/Delete/Name dialogs
+    ├── FolderTreeItems.kt        # Rows (long-press selection), overflow menus, Move/Delete/Name dialogs
     ├── NoteViewModel.kt          # Strokes, undo/redo, load state, autosave
     ├── NoteSaver.kt              # App-scoped save so leaving the screen cannot cancel a write
     ├── NoteScreen.kt             # Canvas host, toolbar, save-on-exit / on-stop
@@ -69,7 +70,7 @@ app/src/main/java/uk/kayalab/mynotes/
         ├── StrokeOutline.kt      # Pure pressure → variable-width outline polygon (unit tested)
         ├── StrokeShapes.kt       # Emits a stroke into Compose or Android paths (fill or centreline)
         ├── CanvasView.kt         # Pointer input, stylus buttons, pan/zoom, committed-stroke bitmap layer
-        ├── CanvasToolbar.kt
+        ├── CanvasToolbar.kt      # One row: tools, style popover (colour/width/font), overflow (PDF, paper)
         └── fluentui-system-icons_*.kt
 ```
 
@@ -131,6 +132,13 @@ cannot cancel a stroke.
 beyond what a canvas `referenceWidth` (the device width) would need, so a small sketch stays small.
 Every stroke is drawn on every page and the page clips.
 
+### List selection and toolbar
+There are no checkboxes: long-press selects, and while anything is selected a tap toggles instead
+of opening; back clears the selection. The note toolbar is a single row; tapping the already
+selected tool or the colour dot opens the style popover. Paper (`PageTemplate`) is per note and
+drawn by `drawTemplate` in the canvas layer and lightly in the PDF; new notes take Settings →
+"Paper for new notes".
+
 ### Folders
 Root notes use `folderId = 0`; root folders use `parentId = null`. Deleting a folder removes its
 whole subtree and their notes in one transaction after a confirmation that states the counts.
@@ -153,9 +161,9 @@ entity change needs a migration and a case in that test. The migration's CREATE 
 
 ## Roadmap
 
-Phases 1–3 are done: data safety, stylus buttons, PDF share, pressure ink, bitmap layer,
-prediction, per-stroke storage, thumbnails, backup/restore. Jetpack Ink stays an option if latency
-is ever visible. Phase 4 (UI polish): single-row toolbar with colour/width popover (portrait
-squeezes the colour row), long-press selection, page templates. Extras on request: handwriting
-recognition, images, PDF annotation, shapes. Extras on request: handwriting recognition, images, PDF
+Phases 1–4 are done: data safety, stylus buttons, PDF share, pressure ink, bitmap layer,
+prediction, per-stroke storage, thumbnails, backup/restore, single-row toolbar, long-press
+selection, paper templates. Jetpack Ink stays an option if latency is ever visible. Extras on
+request: handwriting recognition (ML Kit, on device), images, PDF annotation, shapes, keyboard
+shortcuts, launcher shortcut for a new note. Extras on request: handwriting recognition, images, PDF
 annotation, shapes.

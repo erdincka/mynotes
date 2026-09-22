@@ -62,6 +62,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.runtime.withFrameNanos
 import androidx.input.motionprediction.MotionEventPredictor
+import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.data.StylusButtonAction
 import uk.kayalab.mynotes.data.StylusConfig
 import uk.kayalab.mynotes.export.PdfRenderer
@@ -80,6 +81,7 @@ fun CanvasScreen(
     currentFontSize: Float,
     currentFontFamily: String,
     stylusConfig: StylusConfig,
+    template: PageTemplate,
     modifier: Modifier = Modifier,
 ) {
     val strokes by viewModel.strokes.collectAsState()
@@ -103,6 +105,7 @@ fun CanvasScreen(
         currentFontSize = currentFontSize,
         currentFontFamily = currentFontFamily,
         stylusConfig = stylusConfig,
+        template = template,
         modifier = modifier
     )
 }
@@ -123,13 +126,14 @@ private class CommittedLayer {
     private var pan = Offset.Unspecified
     private var zoom = 0f
     private var dark = false
+    private var template: PageTemplate? = null
 
-    fun isCurrent(strokes: List<StrokeData>, selectedIds: Set<Long>, pan: Offset, zoom: Float, dark: Boolean, width: Int, height: Int): Boolean =
+    fun isCurrent(strokes: List<StrokeData>, selectedIds: Set<Long>, pan: Offset, zoom: Float, dark: Boolean, template: PageTemplate, width: Int, height: Int): Boolean =
         this.strokes === strokes && this.selectedIds === selectedIds && this.pan == pan && this.zoom == zoom &&
-            this.dark == dark && bitmap?.width == width && bitmap?.height == height
+            this.dark == dark && this.template == template && bitmap?.width == width && bitmap?.height == height
 
-    fun remember(strokes: List<StrokeData>, selectedIds: Set<Long>, pan: Offset, zoom: Float, dark: Boolean) {
-        this.strokes = strokes; this.selectedIds = selectedIds; this.pan = pan; this.zoom = zoom; this.dark = dark
+    fun remember(strokes: List<StrokeData>, selectedIds: Set<Long>, pan: Offset, zoom: Float, dark: Boolean, template: PageTemplate) {
+        this.strokes = strokes; this.selectedIds = selectedIds; this.pan = pan; this.zoom = zoom; this.dark = dark; this.template = template
     }
 }
 
@@ -152,6 +156,7 @@ fun CanvasView(
     currentFontSize: Float,
     currentFontFamily: String,
     stylusConfig: StylusConfig,
+    template: PageTemplate,
     modifier: Modifier = Modifier,
 ) {
     var panX by rememberSaveable { mutableFloatStateOf(0f) }
@@ -450,7 +455,7 @@ fun CanvasView(
             val width = size.width.roundToInt()
             val height = size.height.roundToInt()
             if (width > 0 && height > 0) {
-                if (!committedLayer.isCurrent(strokes, selectedIds, panOffset, zoomScale, isDarkTheme, width, height)) {
+                if (!committedLayer.isCurrent(strokes, selectedIds, panOffset, zoomScale, isDarkTheme, template, width, height)) {
                     val bitmap = committedLayer.bitmap?.takeIf { it.width == width && it.height == height }
                         ?: ImageBitmap(width, height).also { committedLayer.bitmap = it }
                     val layerCanvas = ComposeCanvas(bitmap)
@@ -458,7 +463,7 @@ fun CanvasView(
                     CanvasDrawScope().draw(this, layoutDirection, layerCanvas, Size(width.toFloat(), height.toFloat())) {
                         translate(left = panOffset.x, top = panOffset.y) {
                             scale(zoomScale, pivot = Offset.Zero) {
-                                drawGrid(panOffset, zoomScale)
+                                drawTemplate(template, panOffset, zoomScale)
                                 strokes.forEach { stroke ->
                                     if (stroke.id in selectedIds) return@forEach
                                     val shape = shapeCache[stroke.id]?.takeIf { it.stroke === stroke }
@@ -468,7 +473,7 @@ fun CanvasView(
                             }
                         }
                     }
-                    committedLayer.remember(strokes, selectedIds, panOffset, zoomScale, isDarkTheme)
+                    committedLayer.remember(strokes, selectedIds, panOffset, zoomScale, isDarkTheme, template)
                 }
                 committedLayer.bitmap?.let { drawImage(it) }
             }
@@ -620,24 +625,39 @@ private fun invertColor(color: Color): Color {
     }
 }
 
-/** Grid over the visible part of the infinite canvas, in content space. */
-private fun DrawScope.drawGrid(pan: Offset, zoom: Float) {
-    val gridSize = 50f
+/** Paper pattern over the visible part of the infinite canvas, in content space. */
+private fun DrawScope.drawTemplate(template: PageTemplate, pan: Offset, zoom: Float) {
+    if (template == PageTemplate.PLAIN) return
+    val spacing = when (template) {
+        PageTemplate.RULED -> 64f
+        PageTemplate.DOTTED -> 40f
+        else -> 50f
+    }
     val left = -pan.x / zoom
     val top = -pan.y / zoom
     val right = (size.width - pan.x) / zoom
     val bottom = (size.height - pan.y) / zoom
-    val color = Color.Gray.copy(alpha = 0.15f)
+    val color = Color.Gray.copy(alpha = if (template == PageTemplate.DOTTED) 0.35f else 0.15f)
     val lineWidth = 1f / zoom
-    var x = floor(left / gridSize) * gridSize
-    while (x <= right) {
-        drawLine(color, Offset(x, top), Offset(x, bottom), lineWidth)
-        x += gridSize
-    }
-    var y = floor(top / gridSize) * gridSize
-    while (y <= bottom) {
-        drawLine(color, Offset(left, y), Offset(right, y), lineWidth)
-        y += gridSize
+    var x = floor(left / spacing) * spacing
+    var y = floor(top / spacing) * spacing
+    when (template) {
+        PageTemplate.GRID -> {
+            while (x <= right) { drawLine(color, Offset(x, top), Offset(x, bottom), lineWidth); x += spacing }
+            while (y <= bottom) { drawLine(color, Offset(left, y), Offset(right, y), lineWidth); y += spacing }
+        }
+        PageTemplate.RULED -> {
+            while (y <= bottom) { drawLine(color, Offset(left, y), Offset(right, y), lineWidth); y += spacing }
+        }
+        PageTemplate.DOTTED -> {
+            val radius = 1.5f / zoom.coerceAtLeast(0.5f)
+            while (y <= bottom) {
+                var dx = x
+                while (dx <= right) { drawCircle(color, radius, Offset(dx, y)); dx += spacing }
+                y += spacing
+            }
+        }
+        PageTemplate.PLAIN -> Unit
     }
 }
 

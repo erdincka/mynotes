@@ -20,8 +20,10 @@ class NoteRepository @Inject constructor(
 
     suspend fun loadStrokes(noteId: Long): List<StrokeData> = strokeDao.forNote(noteId).map { it.toStrokeData() }
 
-    suspend fun create(name: String, folderId: Long): Long =
-        noteDao.insert(Note(name = name, folderId = folderId))
+    suspend fun create(name: String, folderId: Long, template: PageTemplate): Long =
+        noteDao.insert(Note(name = name, folderId = folderId, template = template.name.lowercase()))
+
+    suspend fun setTemplate(id: Long, template: PageTemplate) = noteDao.updateTemplate(id, template.name.lowercase())
 
     /** Applies a stroke diff and refreshes the note's timestamp and thumbnail in one transaction. */
     suspend fun applyStrokeChanges(noteId: Long, deletedIds: List<Long>, upserts: List<StrokeEntity>, thumbnail: ByteArray?) {

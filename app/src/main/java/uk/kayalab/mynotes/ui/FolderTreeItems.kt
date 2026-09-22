@@ -4,7 +4,9 @@ import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
@@ -22,7 +24,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Home
@@ -30,7 +34,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -59,26 +62,31 @@ import java.util.Date
 
 data class MenuAction(val label: String, val onClick: () -> Unit)
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FolderItem(
     folder: Folder,
     level: Int,
     isExpanded: Boolean,
     isSelected: Boolean,
+    selectionMode: Boolean,
     pathLabel: String?,
     onToggleExpand: () -> Unit,
     onToggleSelection: () -> Unit,
     actions: List<MenuAction>
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth().clickable { onToggleExpand() },
+        modifier = Modifier.fillMaxWidth().combinedClickable(
+            onClick = { if (selectionMode) onToggleSelection() else onToggleExpand() },
+            onLongClick = onToggleSelection
+        ),
         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent
     ) {
         Row(
-            modifier = Modifier.padding(start = (level * 16 + 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            modifier = Modifier.padding(start = (level * 16 + 12).dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Checkbox(checked = isSelected, onCheckedChange = { onToggleSelection() })
+            SelectionMark(isSelected, selectionMode)
             Icon(
                 if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null
@@ -100,11 +108,13 @@ fun FolderItem(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoteItem(
     note: NoteSummary,
     level: Int,
     isSelected: Boolean,
+    selectionMode: Boolean,
     pathLabel: String?,
     dateFormat: SimpleDateFormat,
     onToggleSelection: () -> Unit,
@@ -112,15 +122,17 @@ fun NoteItem(
     actions: List<MenuAction>
 ) {
     Surface(
-        modifier = Modifier.fillMaxWidth().clickable { onNoteClick() },
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+        modifier = Modifier.fillMaxWidth().combinedClickable(
+            onClick = { if (selectionMode) onToggleSelection() else onNoteClick() },
+            onLongClick = onToggleSelection
+        ),
+        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent
     ) {
         Row(
-            modifier = Modifier.padding(start = (level * 16 + 8).dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            modifier = Modifier.padding(start = (level * 16 + 12).dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Checkbox(checked = isSelected, onCheckedChange = { onToggleSelection() })
-            Spacer(modifier = Modifier.width(8.dp))
+            SelectionMark(isSelected, selectionMode)
             NoteThumbnail(note.thumbnail)
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -136,6 +148,18 @@ fun NoteItem(
             OverflowMenu(actions)
         }
     }
+}
+
+/** A check circle that only takes up space while a selection is in progress. */
+@Composable
+private fun SelectionMark(isSelected: Boolean, selectionMode: Boolean) {
+    if (!selectionMode) return
+    Icon(
+        if (isSelected) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+        contentDescription = if (isSelected) "Selected" else "Not selected",
+        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        modifier = Modifier.padding(end = 12.dp).size(24.dp)
+    )
 }
 
 @Composable

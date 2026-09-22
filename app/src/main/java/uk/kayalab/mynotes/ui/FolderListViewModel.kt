@@ -18,6 +18,7 @@ import uk.kayalab.mynotes.data.FolderRepository
 import uk.kayalab.mynotes.data.FolderTree
 import uk.kayalab.mynotes.data.NoteRepository
 import uk.kayalab.mynotes.data.NoteSummary
+import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.data.SettingsRepository
 import uk.kayalab.mynotes.export.PdfExportService
 import javax.inject.Inject
@@ -113,7 +114,7 @@ class FolderListViewModel @Inject constructor(
     }
 
     fun createNote(name: String, folderId: Long, onCreated: (Long) -> Unit) = launchSafely("create the note") {
-        onCreated(noteRepository.create(name.trim(), folderId))
+        onCreated(noteRepository.create(name.trim(), folderId, settingsRepository.defaultTemplate.first()))
     }
 
     fun renameNote(noteId: Long, newName: String) = launchSafely("rename the note") {
@@ -169,7 +170,7 @@ class FolderListViewModel @Inject constructor(
         val note = noteRepository.getNoteById(noteId) ?: return@launchSafely
         val strokes = noteRepository.loadStrokes(noteId)
         val folder = settingsRepository.exportFolderUri.first()
-        when (val outcome = pdfExportService.exportToFolder(note.name, strokes, folder)) {
+        when (val outcome = pdfExportService.exportToFolder(note.name, strokes, folder, PageTemplate.fromName(note.template))) {
             is PdfExportService.Outcome.Saved -> showMessage("Exported to ${outcome.displayPath}")
             is PdfExportService.Outcome.Failed -> showMessage("Export failed: ${outcome.message}")
         }
@@ -178,7 +179,7 @@ class FolderListViewModel @Inject constructor(
     fun shareNoteAsPdf(noteId: Long) = launchSafely("share the PDF") {
         val note = noteRepository.getNoteById(noteId) ?: return@launchSafely
         val strokes = noteRepository.loadStrokes(noteId)
-        when (val outcome = pdfExportService.share(note.name, strokes)) {
+        when (val outcome = pdfExportService.share(note.name, strokes, PageTemplate.fromName(note.template))) {
             is PdfExportService.Outcome.Saved -> Unit
             is PdfExportService.Outcome.Failed -> showMessage("Could not share the PDF: ${outcome.message}")
         }

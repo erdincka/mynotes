@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import uk.kayalab.mynotes.data.Note
 import uk.kayalab.mynotes.data.NoteRepository
+import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.data.SettingsRepository
 import uk.kayalab.mynotes.export.PdfExportService
 import uk.kayalab.mynotes.ui.canvas.StrokeData
@@ -103,7 +104,7 @@ class NoteViewModel @Inject constructor(
         val note = _note.value ?: return
         saveNow()
         viewModelScope.launch {
-            when (val outcome = pdfExportService.share(note.name, _strokes.value)) {
+            when (val outcome = pdfExportService.share(note.name, _strokes.value, PageTemplate.fromName(note.template))) {
                 is PdfExportService.Outcome.Failed -> _message.value = "Could not share the PDF: ${outcome.message}"
                 is PdfExportService.Outcome.Saved -> Unit
             }
@@ -115,10 +116,19 @@ class NoteViewModel @Inject constructor(
         saveNow()
         viewModelScope.launch {
             val folder = runCatching { settingsRepository.exportFolderUri.first() }.getOrNull()
-            _message.value = when (val outcome = pdfExportService.exportToFolder(note.name, _strokes.value, folder)) {
+            _message.value = when (val outcome = pdfExportService.exportToFolder(note.name, _strokes.value, folder, PageTemplate.fromName(note.template))) {
                 is PdfExportService.Outcome.Failed -> "Export failed: ${outcome.message}"
                 is PdfExportService.Outcome.Saved -> "Exported to ${outcome.displayPath}"
             }
+        }
+    }
+
+    fun setTemplate(template: PageTemplate) {
+        val note = _note.value ?: return
+        _note.value = note.copy(template = template.name.lowercase())
+        viewModelScope.launch {
+            runCatching { noteRepository.setTemplate(note.id, template) }
+                .onFailure { Timber.e(it, "Changing paper failed"); _message.value = "Could not change the paper." }
         }
     }
 

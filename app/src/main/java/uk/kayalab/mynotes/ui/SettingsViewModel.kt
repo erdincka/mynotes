@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import uk.kayalab.mynotes.data.FolderRepository
+import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.data.SettingsRepository
 import uk.kayalab.mynotes.export.BackupService
 import uk.kayalab.mynotes.data.StylusButtonAction
@@ -65,6 +66,9 @@ class SettingsViewModel @Inject constructor(
     val exportFolderUri: StateFlow<String?> = settingsRepository.exportFolderUri
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val defaultTemplate: StateFlow<PageTemplate> = settingsRepository.defaultTemplate
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PageTemplate.DEFAULT)
+
     val stylusConfig: StateFlow<StylusConfig> = settingsRepository.stylusConfig
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StylusConfig())
 
@@ -74,6 +78,7 @@ class SettingsViewModel @Inject constructor(
     fun setStylusPrimaryAction(action: StylusButtonAction) = update { settingsRepository.setStylusPrimaryAction(action) }
     fun setStylusSecondaryAction(action: StylusButtonAction) = update { settingsRepository.setStylusSecondaryAction(action) }
     fun setStylusOnly(enabled: Boolean) = update { settingsRepository.setStylusOnly(enabled) }
+    fun setDefaultTemplate(template: PageTemplate) = update { settingsRepository.setDefaultTemplate(template) }
 
     private fun update(block: suspend () -> Unit) {
         viewModelScope.launch {

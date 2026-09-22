@@ -28,7 +28,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Serializable
-private data class BackupNote(val id: Long, val name: String, val folderId: Long, val createdAt: Long, val updatedAt: Long)
+private data class BackupNote(val id: Long, val name: String, val folderId: Long, val createdAt: Long, val updatedAt: Long, val template: String = "grid")
 
 @Serializable
 private data class BackupManifest(
@@ -61,7 +61,7 @@ class BackupService @Inject constructor(
             val manifest = BackupManifest(
                 exportedAt = System.currentTimeMillis(),
                 folders = allFolders,
-                notes = notes.map { BackupNote(it.id, it.name, it.folderId, it.createdAt, it.updatedAt) }
+                notes = notes.map { BackupNote(it.id, it.name, it.folderId, it.createdAt, it.updatedAt, it.template) }
             )
             val stream = context.contentResolver.openOutputStream(target, "wt")
                 ?: error("Could not open the chosen location for writing.")
@@ -124,7 +124,7 @@ class BackupService @Inject constructor(
                 val folderId = if (note.folderId == 0L) 0L else folderIdMap[note.folderId] ?: 0L
                 val thumbnail = if (strokes.isEmpty()) null else NoteThumbnailRenderer.render(strokes)
                 noteRepository.insertWithStrokes(
-                    Note(name = note.name, folderId = folderId, createdAt = note.createdAt, updatedAt = note.updatedAt),
+                    Note(name = note.name, folderId = folderId, createdAt = note.createdAt, updatedAt = note.updatedAt, template = note.template),
                     strokes,
                     thumbnail
                 )

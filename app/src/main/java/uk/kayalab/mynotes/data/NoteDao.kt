@@ -13,7 +13,7 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE id = :id")
     suspend fun getNoteById(id: Long): Note?
 
-    @Query("SELECT id, name, folderId, createdAt, updatedAt FROM notes")
+    @Query("SELECT id, name, folderId, createdAt, updatedAt, template FROM notes")
     suspend fun getAllPlain(): List<NotePlain>
 
     @Query(
@@ -25,6 +25,9 @@ interface NoteDao {
 
     @Query("UPDATE notes SET updatedAt = :updatedAt, thumbnail = :thumbnail WHERE id = :id")
     suspend fun touch(id: Long, updatedAt: Long, thumbnail: ByteArray?)
+
+    @Query("UPDATE notes SET template = :template WHERE id = :id")
+    suspend fun updateTemplate(id: Long, template: String)
 
     @Query("UPDATE notes SET name = :name, updatedAt = :updatedAt WHERE id = :id")
     suspend fun rename(id: Long, name: String, updatedAt: Long)
@@ -40,4 +43,4 @@ interface NoteDao {
 }
 
 /** Metadata only, for backups. */
-data class NotePlain(val id: Long, val name: String, val folderId: Long, val createdAt: Long, val updatedAt: Long)
+data class NotePlain(val id: Long, val name: String, val folderId: Long, val createdAt: Long, val updatedAt: Long, val template: String)

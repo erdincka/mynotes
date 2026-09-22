@@ -57,5 +57,13 @@ class MigrationTest {
         db.execSQL("PRAGMA foreign_keys=ON")
         db.execSQL("DELETE FROM notes WHERE id = 10")
         db.query("SELECT COUNT(*) FROM strokes").use { it.moveToFirst(); assertEquals("strokes cascade on note delete", 0, it.getInt(0)) }
+        db.close()
+
+        val db5 = helper.runMigrationsAndValidate(dbName, 5, true, MyNotesDatabase.MIGRATION_4_5)
+        db5.query("SELECT template FROM notes WHERE id = 11").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("grid", c.getString(0))
+        }
+        db5.close()
     }
 }

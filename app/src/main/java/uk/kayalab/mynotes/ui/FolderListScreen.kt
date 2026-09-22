@@ -1,5 +1,6 @@
 package uk.kayalab.mynotes.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -74,6 +75,8 @@ fun FolderListScreen(
     var searchActive by remember { mutableStateOf(false) }
     val dateFormat = remember { SimpleDateFormat("d MMM yyyy HH:mm", Locale.UK) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    BackHandler(enabled = state.hasSelection) { viewModel.clearSelection() }
 
     LaunchedEffect(state.message) {
         state.message?.let {
@@ -182,7 +185,7 @@ fun FolderListScreen(
                 item {
                     Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
-                            if (state.isSearching) "Nothing matches \"${state.searchQuery}\"." else "No notes yet. Tap New note to start.",
+                            if (state.isSearching) "Nothing matches \"${state.searchQuery}\"." else "No notes yet. Tap New note to start. Long-press any item to select several.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -265,6 +268,7 @@ private fun folderRow(ctx: ItemContext, folder: Folder, level: Int, isExpanded: 
         level = level,
         isExpanded = isExpanded,
         isSelected = folder.id in ctx.state.selectedFolders,
+        selectionMode = ctx.state.hasSelection,
         pathLabel = pathLabel,
         onToggleExpand = {
             if (ctx.state.isSearching) ctx.viewModel.revealFolder(folder.id) else ctx.viewModel.toggleFolder(folder.id)
@@ -289,6 +293,7 @@ private fun noteRow(ctx: ItemContext, note: NoteSummary, level: Int, pathLabel: 
         note = note,
         level = level,
         isSelected = note.id in ctx.state.selectedNotes,
+        selectionMode = ctx.state.hasSelection,
         pathLabel = pathLabel,
         dateFormat = ctx.dateFormat,
         onToggleSelection = { ctx.viewModel.toggleNoteSelection(note.id) },

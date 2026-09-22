@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.ui.canvas.CanvasScreen
 import uk.kayalab.mynotes.ui.canvas.CanvasTool
 import uk.kayalab.mynotes.ui.canvas.CanvasToolbar
@@ -45,6 +46,8 @@ fun NoteScreen(
     val defaultFontFamily by settingsViewModel.defaultFontFamily.collectAsState()
     val stylusConfig by settingsViewModel.stylusConfig.collectAsState()
     val loadState by viewModel.loadState.collectAsState()
+    val note by viewModel.note.collectAsState()
+    val template = PageTemplate.fromName(note?.template)
     val isDirty by viewModel.isDirty.collectAsState()
     val message by viewModel.message.collectAsState()
 
@@ -96,6 +99,7 @@ fun NoteScreen(
                 currentFontSize = currentFontSize,
                 currentFontFamily = currentFontFamily,
                 stylusConfig = stylusConfig,
+                template = template,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -116,6 +120,8 @@ fun NoteScreen(
                 onFontSizeChanged = { currentFontSize = it },
                 currentFontFamily = currentFontFamily,
                 onFontFamilyChanged = { currentFontFamily = it },
+                template = template,
+                onTemplateSelected = viewModel::setTemplate,
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }

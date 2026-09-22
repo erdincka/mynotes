@@ -1,5 +1,6 @@
 package uk.kayalab.mynotes.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -11,7 +12,9 @@ data class Note(
     val folderId: Long,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val thumbnail: ByteArray? = null
+    val thumbnail: ByteArray? = null,
+    @ColumnInfo(defaultValue = "grid")
+    val template: String = "grid"
 ) {
     override fun equals(other: Any?): Boolean = other is Note && other.id == id && other.updatedAt == updatedAt && other.name == name
     override fun hashCode(): Int = id.hashCode()
