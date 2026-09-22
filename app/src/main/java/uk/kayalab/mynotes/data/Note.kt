@@ -16,6 +16,9 @@ data class Note(
     @ColumnInfo(defaultValue = "grid")
     val template: String = "grid"
 ) {
-    override fun equals(other: Any?): Boolean = other is Note && other.id == id && other.updatedAt == updatedAt && other.name == name
+    override fun equals(other: Any?): Boolean =
+        other is Note && other.id == id && other.name == name && other.folderId == folderId &&
+            other.createdAt == createdAt && other.updatedAt == updatedAt && other.template == template &&
+            (other.thumbnail === thumbnail || (other.thumbnail != null && thumbnail != null && other.thumbnail.contentEquals(thumbnail)))
     override fun hashCode(): Int = id.hashCode()
 }

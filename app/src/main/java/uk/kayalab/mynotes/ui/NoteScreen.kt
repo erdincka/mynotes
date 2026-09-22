@@ -48,7 +48,6 @@ fun NoteScreen(
     val loadState by viewModel.loadState.collectAsState()
     val note by viewModel.note.collectAsState()
     val template = PageTemplate.fromName(note?.template)
-    val isDirty by viewModel.isDirty.collectAsState()
     val message by viewModel.message.collectAsState()
 
     var currentTool by remember { mutableStateOf(CanvasTool.PEN) }
@@ -115,7 +114,6 @@ fun NoteScreen(
                 onBack = handleBack,
                 onShare = { viewModel.sharePdf() },
                 onExport = { viewModel.exportPdf() },
-                isDirty = isDirty,
                 currentFontSize = currentFontSize,
                 onFontSizeChanged = { currentFontSize = it },
                 currentFontFamily = currentFontFamily,

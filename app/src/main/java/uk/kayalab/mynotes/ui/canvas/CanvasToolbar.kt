@@ -14,14 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Redo
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.Brush
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -73,7 +66,6 @@ fun CanvasToolbar(
     onBack: () -> Unit,
     onShare: () -> Unit,
     onExport: () -> Unit,
-    isDirty: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val isDark = LocalIsDarkTheme.current
@@ -90,30 +82,30 @@ fun CanvasToolbar(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp).fillMaxWidth()
         ) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-            IconButton(onClick = onUndo) { Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo") }
-            IconButton(onClick = onRedo) { Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo") }
+            ToolbarIconButton(FluentIcons.Back, "Back", onClick = onBack)
+            ToolbarIconButton(FluentIcons.Undo, "Undo", onClick = onUndo)
+            ToolbarIconButton(FluentIcons.Redo, "Redo", onClick = onRedo)
 
             VerticalDivider(modifier = Modifier.height(28.dp).padding(horizontal = 4.dp))
 
             Row(modifier = Modifier.weight(1f), horizontalArrangement = Arrangement.Center) {
                 CanvasTool.entries.forEach { tool ->
                     val icon = when (tool) {
-                        CanvasTool.PEN -> Icons.Default.Edit
-                        CanvasTool.BRUSH -> Icons.Default.Brush
-                        CanvasTool.ERASER -> FluentuiSystemIconsEraser
-                        CanvasTool.HIGHLIGHTER -> FluentuiSystemIconsHighlight
-                        CanvasTool.LASSO -> FluentuiSystemIconsLasso
-                        CanvasTool.TEXT -> Icons.Default.TextFields
+                        CanvasTool.PEN -> FluentIcons.Pen
+                        CanvasTool.BRUSH -> FluentIcons.Brush
+                        CanvasTool.ERASER -> FluentIcons.Eraser
+                        CanvasTool.HIGHLIGHTER -> FluentIcons.Highlighter
+                        CanvasTool.LASSO -> FluentIcons.Lasso
+                        CanvasTool.TEXT -> FluentIcons.Text
                     }
-                    IconButton(
+                    ToolbarIconButton(
+                        icon = icon,
+                        description = tool.name.lowercase().replaceFirstChar { it.uppercase() },
+                        selected = tool == currentTool,
                         onClick = {
                             if (tool == currentTool && tool != CanvasTool.LASSO) showStylePopover = true else onToolSelected(tool)
-                        },
-                        colors = if (tool == currentTool) IconButtonDefaults.filledIconButtonColors() else IconButtonDefaults.iconButtonColors()
-                    ) {
-                        Icon(icon, contentDescription = tool.name.lowercase().replaceFirstChar { it.uppercase() })
-                    }
+                        }
+                    )
                 }
             }
 
@@ -142,16 +134,8 @@ fun CanvasToolbar(
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 6.dp)
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(if (isDirty) MaterialTheme.colorScheme.primary else Color.Transparent)
-            )
-
             Box {
-                IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, contentDescription = "More") }
+                ToolbarIconButton(FluentIcons.More, "More", onClick = { showMenu = true })
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                     DropdownMenuItem(text = { Text("Send as PDF") }, onClick = { showMenu = false; onShare() })
                     DropdownMenuItem(text = { Text("Export PDF to folder") }, onClick = { showMenu = false; onExport() })
@@ -173,6 +157,17 @@ fun CanvasToolbar(
     }
 }
 
+@Composable
+private fun ToolbarIconButton(icon: ImageVector, description: String, onClick: () -> Unit, selected: Boolean = false) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(38.dp),
+        colors = if (selected) IconButtonDefaults.filledIconButtonColors() else IconButtonDefaults.iconButtonColors()
+    ) {
+        Icon(icon, contentDescription = description, modifier = Modifier.size(20.dp))
+    }
+}
+
 /** Ink colours are stored as drawn on white; in the dark theme black shows as white and vice versa. */
 private fun displayColor(color: Color, isDark: Boolean): Color = when {
     !isDark -> color
@@ -190,7 +185,7 @@ private fun StyleButton(color: Color, width: Float, tool: CanvasTool, onClick: (
     }
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(38.dp)
             .clip(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
