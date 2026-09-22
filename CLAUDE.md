@@ -15,7 +15,10 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :app:compileDebugKotlin
 # Unit tests (pure Kotlin, no device needed)
 JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :app:testDebugUnitTest
 
-# Room migration test on the connected tablet (uses app/schemas as test assets)
+# Room migration test on the connected tablet (uses app/schemas as test assets).
+# WARNING: by default AGP uninstalls the app after connected tests, which deletes every note on
+# the device. gradle.properties sets leaveApksInstalledAfterRun=true to prevent that; keep it, and
+# take a backup (Settings → Back up) before running device tests anyway.
 JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :app:connectedDebugAndroidTest
 
 # Debug APK → app/build/outputs/apk/debug/app-debug.apk
