@@ -20,7 +20,6 @@ import uk.kayalab.mynotes.data.NoteRepository
 import uk.kayalab.mynotes.data.NoteSummary
 import uk.kayalab.mynotes.data.SettingsRepository
 import uk.kayalab.mynotes.export.PdfExportService
-import uk.kayalab.mynotes.ui.canvas.StrokeCodec
 import javax.inject.Inject
 
 /** Notes at the top level have no folder; the database stores that as folder id 0. */
@@ -168,10 +167,7 @@ class FolderListViewModel @Inject constructor(
 
     fun exportNoteToPdf(noteId: Long) = launchSafely("export the PDF") {
         val note = noteRepository.getNoteById(noteId) ?: return@launchSafely
-        val strokes = StrokeCodec.decode(note.content).getOrElse {
-            showMessage("This note could not be read, so it was not exported.")
-            return@launchSafely
-        }
+        val strokes = noteRepository.loadStrokes(noteId)
         val folder = settingsRepository.exportFolderUri.first()
         when (val outcome = pdfExportService.exportToFolder(note.name, strokes, folder)) {
             is PdfExportService.Outcome.Saved -> showMessage("Exported to ${outcome.displayPath}")
@@ -181,10 +177,7 @@ class FolderListViewModel @Inject constructor(
 
     fun shareNoteAsPdf(noteId: Long) = launchSafely("share the PDF") {
         val note = noteRepository.getNoteById(noteId) ?: return@launchSafely
-        val strokes = StrokeCodec.decode(note.content).getOrElse {
-            showMessage("This note could not be read, so it was not shared.")
-            return@launchSafely
-        }
+        val strokes = noteRepository.loadStrokes(noteId)
         when (val outcome = pdfExportService.share(note.name, strokes)) {
             is PdfExportService.Outcome.Saved -> Unit
             is PdfExportService.Outcome.Failed -> showMessage("Could not share the PDF: ${outcome.message}")

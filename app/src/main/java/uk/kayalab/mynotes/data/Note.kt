@@ -2,17 +2,17 @@ package uk.kayalab.mynotes.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
-import kotlinx.serialization.Serializable
 
 @Entity(tableName = "notes")
-@Serializable
 data class Note(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val name: String,
-    val content: String = "",
     val folderId: Long,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val category: String = "default"
-)
+    val thumbnail: ByteArray? = null
+) {
+    override fun equals(other: Any?): Boolean = other is Note && other.id == id && other.updatedAt == updatedAt && other.name == name
+    override fun hashCode(): Int = id.hashCode()
+}

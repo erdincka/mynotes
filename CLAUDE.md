@@ -15,6 +15,9 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :app:compileDebugKotlin
 # Unit tests (pure Kotlin, no device needed)
 JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :app:testDebugUnitTest
 
+# Room migration test on the connected tablet (uses app/schemas as test assets)
+JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :app:connectedDebugAndroidTest
+
 # Debug APK → app/build/outputs/apk/debug/app-debug.apk
 JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :app:assembleDebug
 
@@ -32,9 +35,10 @@ app/src/main/java/uk/kayalab/mynotes/
 ├── MainActivity.kt               # Single activity, applies theme, hosts NavGraph
 ├── MyNotesApplication.kt         # @HiltAndroidApp, Timber
 ├── data/
-│   ├── MyNotesDatabase.kt        # Room v3, migrations 1→2→3, schemas exported to app/schemas
+│   ├── MyNotesDatabase.kt        # Room v4, migrations 1→2→3→4, schemas exported to app/schemas
 │   ├── DataModule.kt             # Hilt: database + DAOs only (repositories are @Inject singletons)
-│   ├── Note.kt / NoteSummary.kt  # Entity; summary projection used by the list (no ink blob)
+│   ├── Note.kt / NoteSummary.kt  # Entity (metadata + thumbnail); list projection with stroke count
+│   ├── StrokeEntity.kt / StrokeDao.kt / StrokePacking.kt  # One row per stroke, float32 blobs
 │   ├── Folder.kt / FolderTree.kt # Entity; pure tree helpers (descendants, cycle guard, paths)
 │   ├── NoteDao.kt / FolderDao.kt # Id-based updates so the list never needs full entities
 │   ├── NoteRepository.kt / FolderRepository.kt   # deleteTree() cascades in one transaction
@@ -43,7 +47,9 @@ app/src/main/java/uk/kayalab/mynotes/
 ├── export/
 │   ├── PdfLayout.kt              # Pure A4 layout maths (unit tested)
 │   ├── PdfRenderer.kt            # Strokes → multi-page PdfDocument
-│   └── PdfExportService.kt       # Export to SAF folder / app storage, or share sheet
+│   ├── PdfExportService.kt       # Export to SAF folder / app storage, or share sheet
+│   ├── NoteThumbnailRenderer.kt  # 320×240 PNG preview stored on the note
+│   └── BackupService.kt          # Zip backup (manifest + JSON per note) and additive restore
 └── ui/
     ├── NavGraph.kt               # folders / note/{id} / settings
     ├── FolderListViewModel.kt    # List state, search, selection, delete confirmation, move guard
@@ -71,18 +77,24 @@ kotlinx.serialization, Timber, DocumentFile + FileProvider. JUnit 4 for unit tes
 
 ## Key Decisions
 
-### Ink storage and the codec
-Strokes live as JSON in `notes.content`. `StrokeCodec` is the only reader and writer: it ignores
-unknown keys so an older build can open notes written by a newer one, and it returns a failed
-`Result` rather than an empty list on bad data. `NoteViewModel` turns a failure into
-`NoteLoadState.Unreadable`, which disables editing and saving so the original bytes are never
-overwritten. Never call `Json` directly on note content.
+### Ink storage
+Since schema v4 each stroke is a row in `strokes` (points and pressures as little-endian float32
+blobs via `StrokePacking`), with a foreign key that cascades on note delete. A note of any length
+therefore never approaches SQLite's 2 MB cursor-window limit, and saves are diffs. `StrokeCodec`
+(lenient JSON) remains the interchange format for backups and was the v3 storage format; migration
+3→4 decodes it row by row, drops `notes.content` and `category`, and adds `notes.thumbnail`.
 
 ### Saving
-`NoteSaver` runs saves in an application-wide scope. `viewModelScope` is cancelled the moment the
-note screen is popped, which used to race the final write. Autosave fires three seconds after the
-last change; `saveNow()` also runs on back, on dispose, on `ON_STOP` and in `onCleared()`, all of
-which are no-ops when nothing changed.
+`NoteSaver` keeps a per-note baseline (stroke instance and ordinal by id) primed after load, and
+on save deletes vanished ids, upserts new or changed instances, renders the thumbnail and bumps
+`updatedAt` in one transaction. It runs in an application-wide scope because `viewModelScope` is
+cancelled the moment the note screen is popped. Autosave fires three seconds after the last
+change; `saveNow()` also runs on back, on dispose, on `ON_STOP` and in `onCleared()`.
+
+### Backup
+Settings → Backup writes a zip through the system file picker: `manifest.json` (folders and note
+metadata) plus `notes/<id>.json` of strokes. Restore is additive: folders and notes get fresh ids,
+strokes get fresh ids, and nothing is deleted. Enterprise cloud sign-in is deliberately absent.
 
 ### Stylus buttons
 Hold semantics: `CanvasView` reads `currentEvent.buttons` at stroke start and maps
@@ -122,9 +134,10 @@ whole subtree and their notes in one transaction after a confirmation that state
 `FolderTree.canMove` blocks moving a folder into itself or a descendant.
 
 ### Database
-`exportSchema = true`; schemas are committed under `app/schemas`. There is no destructive
-fallback: every entity change needs a migration. Migration 2→3 recreates both tables to drop the
-old `isSynced` columns.
+`exportSchema = true`; schemas are committed under `app/schemas` and served as androidTest assets
+for `MigrationTest`, which runs on the connected tablet. There is no destructive fallback: every
+entity change needs a migration and a case in that test. The migration's CREATE TABLE for
+`strokes` must equal Room's `createSql` in `app/schemas/.../4.json`.
 
 ## Conventions
 
@@ -137,8 +150,9 @@ old `isSynced` columns.
 
 ## Roadmap
 
-Phase 2 (canvas feel) is done: pressure width, bitmap layer, prediction, palm handling. Jetpack
-Ink stays an option if latency is still visible. Phase 3 (storage): UUID ids, one file per note.
-Phase 4 (UI polish): single-row toolbar with colour/width popover (portrait squeezes the colour
-row), long-press selection, page templates, thumbnails. Extras on request: handwriting recognition, images, PDF
+Phases 1–3 are done: data safety, stylus buttons, PDF share, pressure ink, bitmap layer,
+prediction, per-stroke storage, thumbnails, backup/restore. Jetpack Ink stays an option if latency
+is ever visible. Phase 4 (UI polish): single-row toolbar with colour/width popover (portrait
+squeezes the colour row), long-press selection, page templates. Extras on request: handwriting
+recognition, images, PDF annotation, shapes. Extras on request: handwriting recognition, images, PDF
 annotation, shapes.

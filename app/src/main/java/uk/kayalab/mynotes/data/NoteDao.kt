@@ -13,14 +13,18 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE id = :id")
     suspend fun getNoteById(id: Long): Note?
 
+    @Query("SELECT id, name, folderId, createdAt, updatedAt FROM notes")
+    suspend fun getAllPlain(): List<NotePlain>
+
     @Query(
-        "SELECT id, name, folderId, createdAt, updatedAt, length(content) AS contentSize " +
+        "SELECT id, name, folderId, createdAt, updatedAt, thumbnail, " +
+            "(SELECT COUNT(*) FROM strokes WHERE strokes.noteId = notes.id) AS strokeCount " +
             "FROM notes ORDER BY updatedAt DESC"
     )
     fun getAllSummaries(): Flow<List<NoteSummary>>
 
-    @Query("UPDATE notes SET content = :content, updatedAt = :updatedAt WHERE id = :id")
-    suspend fun updateContent(id: Long, content: String, updatedAt: Long)
+    @Query("UPDATE notes SET updatedAt = :updatedAt, thumbnail = :thumbnail WHERE id = :id")
+    suspend fun touch(id: Long, updatedAt: Long, thumbnail: ByteArray?)
 
     @Query("UPDATE notes SET name = :name, updatedAt = :updatedAt WHERE id = :id")
     suspend fun rename(id: Long, name: String, updatedAt: Long)
@@ -34,3 +38,6 @@ interface NoteDao {
     @Query("DELETE FROM notes WHERE folderId IN (:folderIds)")
     suspend fun deleteByFolderIds(folderIds: List<Long>)
 }
+
+/** Metadata only, for backups. */
+data class NotePlain(val id: Long, val name: String, val folderId: Long, val createdAt: Long, val updatedAt: Long)

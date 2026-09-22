@@ -17,7 +17,7 @@ object DataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MyNotesDatabase =
         Room.databaseBuilder(context, MyNotesDatabase::class.java, MyNotesDatabase.DATABASE_NAME)
-            .addMigrations(MyNotesDatabase.MIGRATION_1_2, MyNotesDatabase.MIGRATION_2_3)
+            .addMigrations(MyNotesDatabase.MIGRATION_1_2, MyNotesDatabase.MIGRATION_2_3, MyNotesDatabase.MIGRATION_3_4)
             .build()
 
     @Provides
@@ -25,4 +25,7 @@ object DataModule {
 
     @Provides
     fun provideFolderDao(database: MyNotesDatabase): FolderDao = database.folderDao()
+
+    @Provides
+    fun provideStrokeDao(database: MyNotesDatabase): StrokeDao = database.strokeDao()
 }

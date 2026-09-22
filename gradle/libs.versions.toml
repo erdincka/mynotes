@@ -18,6 +18,8 @@ material = "1.12.0"
 documentfile = "1.1.0"
 junit = "4.13.2"
 mockito = "5.14.2"
+androidxTestRunner = "1.6.2"
+androidxTestExtJunit = "1.2.1"
 motionprediction = "1.0.0"
 
 [libraries]
@@ -43,6 +45,9 @@ androidx-input-motionprediction = { group = "androidx.input", name = "input-moti
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
 
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-android-compiler", version.ref = "hilt" }

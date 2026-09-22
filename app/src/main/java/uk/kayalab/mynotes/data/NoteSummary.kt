@@ -1,10 +1,17 @@
 package uk.kayalab.mynotes.data
 
-data class NoteSummary(
+/** What the list needs: never the ink itself. */
+class NoteSummary(
     val id: Long,
     val name: String,
     val folderId: Long,
     val createdAt: Long,
     val updatedAt: Long,
-    val contentSize: Int
-)
+    val strokeCount: Int,
+    val thumbnail: ByteArray?
+) {
+    override fun equals(other: Any?): Boolean =
+        other is NoteSummary && other.id == id && other.name == name && other.folderId == folderId &&
+            other.updatedAt == updatedAt && other.strokeCount == strokeCount
+    override fun hashCode(): Int = id.hashCode()
+}

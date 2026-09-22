@@ -22,6 +22,9 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -61,7 +65,22 @@ fun SettingsScreen(
     val defaultFontFamily by viewModel.defaultFontFamily.collectAsState()
     val exportFolderUri by viewModel.exportFolderUri.collectAsState()
     val stylusConfig by viewModel.stylusConfig.collectAsState()
+    val message by viewModel.message.collectAsState()
+    val busy by viewModel.busy.collectAsState()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(message) {
+        message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeMessage()
+        }
+    }
+    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+        uri?.let(viewModel::backupTo)
+    }
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        uri?.let(viewModel::restoreFrom)
+    }
     val currentIsDark = isDarkTheme ?: isSystemInDarkTheme()
     var showFontDialog by remember { mutableStateOf(false) }
 
@@ -76,6 +95,7 @@ fun SettingsScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Settings") },
@@ -147,6 +167,27 @@ fun SettingsScreen(
                             if (exportFolderUri != null) {
                                 TextButton(onClick = { viewModel.setExportFolderUri(null) }) { Text("Clear") }
                             }
+                        }
+                    }
+                }
+            }
+
+            item { SectionTitle("Backup") }
+            item {
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("All notes and folders", style = MaterialTheme.typography.titleMedium)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "A zip you can keep anywhere. Restoring adds the notes it contains; it never deletes.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Button(onClick = { backupLauncher.launch(viewModel.backupFileName()) }, enabled = !busy) { Text("Back up") }
+                            TextButton(onClick = { restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }, enabled = !busy) { Text("Restore") }
+                            if (busy) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                         }
                     }
                 }

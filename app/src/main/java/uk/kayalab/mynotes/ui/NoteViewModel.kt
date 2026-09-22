@@ -16,7 +16,6 @@ import uk.kayalab.mynotes.data.Note
 import uk.kayalab.mynotes.data.NoteRepository
 import uk.kayalab.mynotes.data.SettingsRepository
 import uk.kayalab.mynotes.export.PdfExportService
-import uk.kayalab.mynotes.ui.canvas.StrokeCodec
 import uk.kayalab.mynotes.ui.canvas.StrokeData
 import uk.kayalab.mynotes.ui.canvas.StrokeGeometry
 import javax.inject.Inject
@@ -25,8 +24,8 @@ sealed interface NoteLoadState {
     data object Loading : NoteLoadState
     data object Ready : NoteLoadState
     data object Missing : NoteLoadState
-    /** The stored ink could not be decoded. Editing is disabled so the original is never overwritten. */
-    data class Unreadable(val reason: String) : NoteLoadState
+    /** Loading threw; editing stays disabled so nothing is written over data we could not read. */
+    data class Failed(val reason: String) : NoteLoadState
 }
 
 @HiltViewModel
@@ -64,24 +63,24 @@ class NoteViewModel @Inject constructor(
     fun loadNote(noteId: Long) {
         if (_note.value?.id == noteId) return
         viewModelScope.launch {
-            val note = runCatching { noteRepository.getNoteById(noteId) }
-                .onFailure { Timber.e(it, "Loading note %d failed", noteId) }
-                .getOrNull()
-            _note.value = note
-            if (note == null) {
-                _loadState.value = NoteLoadState.Missing
-                return@launch
+            val result = runCatching {
+                val note = noteRepository.getNoteById(noteId) ?: return@runCatching null
+                note to noteRepository.loadStrokes(noteId)
             }
-            StrokeCodec.decode(note.content)
-                .onSuccess {
-                    _strokes.value = it
-                    _loadState.value = NoteLoadState.Ready
+            result.onFailure {
+                Timber.e(it, "Loading note %d failed", noteId)
+                _loadState.value = NoteLoadState.Failed(it.message ?: "unknown error")
+            }.onSuccess { loaded ->
+                if (loaded == null) {
+                    _loadState.value = NoteLoadState.Missing
+                    return@onSuccess
                 }
-                .onFailure {
-                    Timber.e(it, "Note %d has unreadable content", noteId)
-                    _strokes.value = emptyList()
-                    _loadState.value = NoteLoadState.Unreadable(it.message ?: "unknown format")
-                }
+                val (note, strokes) = loaded
+                _note.value = note
+                _strokes.value = strokes
+                noteSaver.prime(noteId, strokes)
+                _loadState.value = NoteLoadState.Ready
+            }
         }
     }
 
@@ -195,6 +194,7 @@ class NoteViewModel @Inject constructor(
 
     override fun onCleared() {
         saveNow()
+        _note.value?.let { noteSaver.forget(it.id) }
     }
 
     private companion object {

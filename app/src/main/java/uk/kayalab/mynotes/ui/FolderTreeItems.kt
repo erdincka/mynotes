@@ -1,6 +1,15 @@
 package uk.kayalab.mynotes.ui
 
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,7 +56,6 @@ import uk.kayalab.mynotes.data.FolderTree
 import uk.kayalab.mynotes.data.NoteSummary
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 data class MenuAction(val label: String, val onClick: () -> Unit)
 
@@ -112,20 +120,15 @@ fun NoteItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Checkbox(checked = isSelected, onCheckedChange = { onToggleSelection() })
-            Spacer(modifier = Modifier.width(24.dp))
-            Icon(
-                Icons.Default.Description,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
+            Spacer(modifier = Modifier.width(8.dp))
+            NoteThumbnail(note.thumbnail)
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(note.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                 val meta = buildString {
                     append(dateFormat.format(Date(note.updatedAt)))
                     append("  •  ")
-                    append(formatSize(note.contentSize))
+                    append(if (note.strokeCount == 1) "1 stroke" else "${note.strokeCount} strokes")
                     if (!pathLabel.isNullOrEmpty()) append("  •  ").append(pathLabel)
                 }
                 Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
@@ -259,8 +262,24 @@ fun flattenTree(folders: List<Folder>): List<Pair<Folder, Int>> {
     return out
 }
 
-fun formatSize(bytes: Int): String = when {
-    bytes < 1024 -> "$bytes B"
-    bytes < 1024 * 1024 -> "%.1f KB".format(Locale.UK, bytes / 1024.0)
-    else -> "%.1f MB".format(Locale.UK, bytes / (1024.0 * 1024.0))
+@Composable
+private fun NoteThumbnail(bytes: ByteArray?) {
+    val bitmap = remember(bytes) {
+        bytes?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }.getOrNull() }
+    }
+    val shape = RoundedCornerShape(6.dp)
+    Box(
+        modifier = Modifier
+            .size(width = 64.dp, height = 48.dp)
+            .clip(shape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
+            .background(Color.White),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(bitmap = bitmap, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+        } else {
+            Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.outline, modifier = Modifier.size(20.dp))
+        }
+    }
 }

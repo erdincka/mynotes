@@ -73,8 +73,8 @@ fun NoteScreen(
     }
     LaunchedEffect(loadState) {
         when (loadState) {
-            is NoteLoadState.Unreadable ->
-                snackbarHostState.showSnackbar("This note could not be read, so editing is disabled to protect its contents.")
+            is NoteLoadState.Failed ->
+                snackbarHostState.showSnackbar("This note could not be loaded, so editing is disabled.")
             NoteLoadState.Missing -> snackbarHostState.showSnackbar("This note no longer exists.")
             else -> Unit
         }
