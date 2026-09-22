@@ -3,246 +3,202 @@ package uk.kayalab.mynotes.ui
 import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import uk.kayalab.mynotes.data.Note
-import uk.kayalab.mynotes.data.NoteRepository
-import uk.kayalab.mynotes.ui.canvas.StrokeData
-import uk.kayalab.mynotes.ui.canvas.nextStrokeId
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import timber.log.Timber
+import uk.kayalab.mynotes.data.Note
+import uk.kayalab.mynotes.data.NoteRepository
+import uk.kayalab.mynotes.data.SettingsRepository
+import uk.kayalab.mynotes.export.PdfExportService
+import uk.kayalab.mynotes.ui.canvas.StrokeCodec
+import uk.kayalab.mynotes.ui.canvas.StrokeData
+import uk.kayalab.mynotes.ui.canvas.StrokeGeometry
 import javax.inject.Inject
+
+sealed interface NoteLoadState {
+    data object Loading : NoteLoadState
+    data object Ready : NoteLoadState
+    data object Missing : NoteLoadState
+    /** The stored ink could not be decoded. Editing is disabled so the original is never overwritten. */
+    data class Unreadable(val reason: String) : NoteLoadState
+}
 
 @HiltViewModel
 class NoteViewModel @Inject constructor(
-    private val noteRepository: NoteRepository
+    private val noteRepository: NoteRepository,
+    private val settingsRepository: SettingsRepository,
+    private val noteSaver: NoteSaver,
+    private val pdfExportService: PdfExportService
 ) : ViewModel() {
+
     private val _note = MutableStateFlow<Note?>(null)
-    val note: StateFlow<Note?> = _note
+    val note: StateFlow<Note?> = _note.asStateFlow()
+
+    private val _loadState = MutableStateFlow<NoteLoadState>(NoteLoadState.Loading)
+    val loadState: StateFlow<NoteLoadState> = _loadState.asStateFlow()
 
     private val _strokes = MutableStateFlow<List<StrokeData>>(emptyList())
-    val strokes: StateFlow<List<StrokeData>> = _strokes
+    val strokes: StateFlow<List<StrokeData>> = _strokes.asStateFlow()
 
     private val _selectedStrokeIds = MutableStateFlow<Set<Long>>(emptySet())
-    val selectedStrokeIds: StateFlow<Set<Long>> = _selectedStrokeIds
+    val selectedStrokeIds: StateFlow<Set<Long>> = _selectedStrokeIds.asStateFlow()
 
-    private var undoStack = mutableListOf<List<StrokeData>>()
-    private var redoStack = mutableListOf<List<StrokeData>>()
+    private val _isDirty = MutableStateFlow(false)
+    val isDirty: StateFlow<Boolean> = _isDirty.asStateFlow()
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    private val undoStack = ArrayDeque<List<StrokeData>>()
+    private val redoStack = ArrayDeque<List<StrokeData>>()
+    private var autosaveJob: Job? = null
+
+    val canEdit: Boolean get() = _loadState.value == NoteLoadState.Ready
 
     fun loadNote(noteId: Long) {
+        if (_note.value?.id == noteId) return
         viewModelScope.launch {
-            val note = noteRepository.getNoteById(noteId)
+            val note = runCatching { noteRepository.getNoteById(noteId) }
+                .onFailure { Timber.e(it, "Loading note %d failed", noteId) }
+                .getOrNull()
             _note.value = note
-            note?.content?.let {
-                try {
-                    _strokes.value = Json.decodeFromString(it)
-                } catch (_: Exception) {
-                    _strokes.value = emptyList()
+            if (note == null) {
+                _loadState.value = NoteLoadState.Missing
+                return@launch
+            }
+            StrokeCodec.decode(note.content)
+                .onSuccess {
+                    _strokes.value = it
+                    _loadState.value = NoteLoadState.Ready
                 }
+                .onFailure {
+                    Timber.e(it, "Note %d has unreadable content", noteId)
+                    _strokes.value = emptyList()
+                    _loadState.value = NoteLoadState.Unreadable(it.message ?: "unknown format")
+                }
+        }
+    }
+
+    /** Persists immediately if there are unsaved changes. Safe to call on the way out of the screen. */
+    fun saveNow() {
+        val note = _note.value ?: return
+        if (!canEdit || !_isDirty.value) return
+        autosaveJob?.cancel()
+        val snapshot = _strokes.value
+        _isDirty.value = false
+        noteSaver.save(note.id, snapshot) { result ->
+            result.onFailure {
+                _isDirty.value = true
+                _message.value = "Could not save the note. Your changes are still on screen; try again."
             }
         }
     }
 
-    fun saveNote() {
-        val currentNote = _note.value ?: return
+    fun sharePdf() {
+        val note = _note.value ?: return
+        saveNow()
         viewModelScope.launch {
-            val content = Json.encodeToString(_strokes.value)
-            noteRepository.update(
-                currentNote.copy(
-                    content = content,
-                    updatedAt = System.currentTimeMillis()
-                )
-            )
+            when (val outcome = pdfExportService.share(note.name, _strokes.value)) {
+                is PdfExportService.Outcome.Failed -> _message.value = "Could not share the PDF: ${outcome.message}"
+                is PdfExportService.Outcome.Saved -> Unit
+            }
         }
     }
 
-    fun addStroke(stroke: StrokeData) {
-        saveToUndoStack()
-        _strokes.value = _strokes.value + stroke
-        redoStack.clear()
+    fun exportPdf() {
+        val note = _note.value ?: return
+        saveNow()
+        viewModelScope.launch {
+            val folder = runCatching { settingsRepository.exportFolderUri.first() }.getOrNull()
+            _message.value = when (val outcome = pdfExportService.exportToFolder(note.name, _strokes.value, folder)) {
+                is PdfExportService.Outcome.Failed -> "Export failed: ${outcome.message}"
+                is PdfExportService.Outcome.Saved -> "Exported to ${outcome.displayPath}"
+            }
+        }
     }
 
+    fun consumeMessage() {
+        _message.value = null
+    }
+
+    fun addStroke(stroke: StrokeData) = commit(_strokes.value + stroke)
+
     fun startErasing() {
-        saveToUndoStack()
-        redoStack.clear()
+        if (!canEdit) return
+        pushUndo()
+    }
+
+    fun eraseAt(point: Offset, radius: Float) {
+        if (!canEdit) return
+        StrokeGeometry.erase(_strokes.value, point, radius)?.let { commit(it, recordUndo = false) }
     }
 
     fun selectStrokesInPath(pathPoints: List<Offset>) {
-        if (pathPoints.size < 3) {
-            _selectedStrokeIds.value = emptySet()
-            return
-        }
-
-        val currentStrokes = _strokes.value
-        val newStrokesList = mutableListOf<StrokeData>()
-        val selectedIds = mutableSetOf<Long>()
-        var splitOccurred = false
-
-        for (stroke in currentStrokes) {
-            val inSegments = mutableListOf<MutableList<Int>>()
-            val outSegments = mutableListOf<MutableList<Int>>()
-            var currentSegment = mutableListOf<Int>()
-            var wasInside: Boolean? = null
-
-            for (i in stroke.points.indices) {
-                val inside = pointInPolygon(stroke.points[i], pathPoints)
-                if (wasInside == null) {
-                    wasInside = inside
-                    currentSegment.add(i)
-                } else if (inside == wasInside) {
-                    currentSegment.add(i)
-                } else {
-                    if (wasInside) inSegments.add(currentSegment) else outSegments.add(currentSegment)
-                    currentSegment = mutableListOf(i)
-                    wasInside = inside
-                    splitOccurred = true
-                }
-            }
-            if (wasInside != null) {
-                if (wasInside) inSegments.add(currentSegment) else outSegments.add(currentSegment)
-            }
-
-            // Create new strokes from segments
-            for (seg in inSegments) {
-                if (seg.size < 1) continue
-                val newStroke = stroke.copy(
-                    id = if (inSegments.size == 1 && outSegments.isEmpty()) stroke.id else nextStrokeId(),
-                    points = seg.map { stroke.points[it] },
-                    pressures = seg.map { if (it < stroke.pressures.size) stroke.pressures[it] else 1f }
-                )
-                newStrokesList.add(newStroke)
-                selectedIds.add(newStroke.id)
-            }
-            for (seg in outSegments) {
-                if (seg.size < 1) continue
-                val newStroke = stroke.copy(
-                    id = if (outSegments.size == 1 && inSegments.isEmpty()) stroke.id else nextStrokeId(),
-                    points = seg.map { stroke.points[it] },
-                    pressures = seg.map { if (it < stroke.pressures.size) stroke.pressures[it] else 1f }
-                )
-                newStrokesList.add(newStroke)
-            }
-        }
-
-        if (splitOccurred) {
-            _strokes.value = newStrokesList
-        }
-        _selectedStrokeIds.value = selectedIds
+        if (!canEdit) return
+        val result = StrokeGeometry.lassoSelect(_strokes.value, pathPoints)
+        if (result.strokes !== _strokes.value) commit(result.strokes)
+        _selectedStrokeIds.value = result.selectedIds
     }
 
     fun moveSelectedStrokes(delta: Offset) {
-        if (_selectedStrokeIds.value.isEmpty()) return
-        
-        val newStrokes = _strokes.value.map { stroke ->
-            if (stroke.id in _selectedStrokeIds.value) {
-                stroke.copy(points = stroke.points.map { it + delta })
-            } else {
-                stroke
-            }
-        }
-        _strokes.value = newStrokes
-    }
-
-    fun commitMove() {
-        if (_selectedStrokeIds.value.isNotEmpty()) {
-            saveToUndoStack()
-            redoStack.clear()
-        }
+        if (!canEdit || _selectedStrokeIds.value.isEmpty() || delta == Offset.Zero) return
+        commit(StrokeGeometry.move(_strokes.value, _selectedStrokeIds.value, delta))
     }
 
     fun clearSelection() {
         _selectedStrokeIds.value = emptySet()
     }
 
-    fun eraseAt(point: Offset, radius: Float) {
-        val currentStrokes = _strokes.value
-        var changed = false
-        val newStrokesList = mutableListOf<StrokeData>()
-
-        for (stroke in currentStrokes) {
-            // Quick check: is the point anywhere near this stroke's bounding box?
-            // For simplicity, we just check points, but we could optimize further.
-            val threshold = radius + (stroke.strokeWidth / 2)
-            val isPossiblyNear = stroke.points.any { (it - point).getDistance() <= threshold + 50f } // broad check
-            
-            if (!isPossiblyNear) {
-                newStrokesList.add(stroke)
-                continue
-            }
-
-            val keptSegments = mutableListOf<MutableList<Int>>()
-            var currentSegment = mutableListOf<Int>()
-            
-            for (i in stroke.points.indices) {
-                val distance = (stroke.points[i] - point).getDistance()
-                if (distance > threshold) {
-                    currentSegment.add(i)
-                } else {
-                    if (currentSegment.isNotEmpty()) {
-                        keptSegments.add(currentSegment)
-                        currentSegment = mutableListOf()
-                    }
-                    changed = true
-                }
-            }
-            if (currentSegment.isNotEmpty()) keptSegments.add(currentSegment)
-
-            if (keptSegments.isEmpty()) {
-                changed = true
-                // Stroke completely erased
-            } else if (keptSegments.size == 1 && keptSegments[0].size == stroke.points.size) {
-                newStrokesList.add(stroke)
-            } else {
-                for (segmentIndices in keptSegments) {
-                    if (segmentIndices.isEmpty()) continue
-                    newStrokesList.add(stroke.copy(
-                        id = nextStrokeId(),
-                        points = segmentIndices.map { stroke.points[it] },
-                        pressures = segmentIndices.map { if (it < stroke.pressures.size) stroke.pressures[it] else 1f }
-                    ))
-                }
-                changed = true
-            }
-        }
-
-        if (changed) {
-            _strokes.value = newStrokesList
-        }
-    }
-
-    private fun pointInPolygon(point: Offset, polygon: List<Offset>): Boolean {
-        var inside = false
-        var j = polygon.size - 1
-        for (i in polygon.indices) {
-            val xi = polygon[i].x; val yi = polygon[i].y
-            val xj = polygon[j].x; val yj = polygon[j].y
-            if ((yi > point.y) != (yj > point.y) &&
-                point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi) {
-                inside = !inside
-            }
-            j = i
-        }
-        return inside
-    }
-
-    private fun saveToUndoStack() {
-        undoStack.add(_strokes.value.toList())
-        if (undoStack.size > 50) undoStack.removeAt(0)
-    }
-
     fun undo() {
-        if (undoStack.isNotEmpty()) {
-            redoStack.add(_strokes.value.toList())
-            _strokes.value = undoStack.removeAt(undoStack.size - 1)
-        }
+        val previous = undoStack.removeLastOrNull() ?: return
+        redoStack.addLast(_strokes.value)
+        setStrokes(previous)
     }
 
     fun redo() {
-        if (redoStack.isNotEmpty()) {
-            undoStack.add(_strokes.value.toList())
-            _strokes.value = redoStack.removeAt(redoStack.size - 1)
+        val next = redoStack.removeLastOrNull() ?: return
+        undoStack.addLast(_strokes.value)
+        setStrokes(next)
+    }
+
+    private fun commit(newStrokes: List<StrokeData>, recordUndo: Boolean = true) {
+        if (!canEdit) return
+        if (recordUndo) pushUndo()
+        setStrokes(newStrokes)
+    }
+
+    private fun pushUndo() {
+        undoStack.addLast(_strokes.value)
+        if (undoStack.size > MAX_UNDO) undoStack.removeFirst()
+        redoStack.clear()
+    }
+
+    private fun setStrokes(newStrokes: List<StrokeData>) {
+        _strokes.value = newStrokes
+        _isDirty.value = true
+        scheduleAutosave()
+    }
+
+    private fun scheduleAutosave() {
+        autosaveJob?.cancel()
+        autosaveJob = viewModelScope.launch {
+            delay(AUTOSAVE_DELAY_MS)
+            saveNow()
         }
+    }
+
+    override fun onCleared() {
+        saveNow()
+    }
+
+    private companion object {
+        const val MAX_UNDO = 50
+        const val AUTOSAVE_DELAY_MS = 3000L
     }
 }

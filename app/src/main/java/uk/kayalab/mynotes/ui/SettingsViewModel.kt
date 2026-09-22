@@ -2,14 +2,15 @@ package uk.kayalab.mynotes.ui
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import uk.kayalab.mynotes.data.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import timber.log.Timber
+import uk.kayalab.mynotes.data.SettingsRepository
+import uk.kayalab.mynotes.data.StylusButtonAction
+import uk.kayalab.mynotes.data.StylusConfig
 import javax.inject.Inject
 
 @HiltViewModel
@@ -26,28 +27,19 @@ class SettingsViewModel @Inject constructor(
     val exportFolderUri: StateFlow<String?> = settingsRepository.exportFolderUri
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    private val _errorMessage = MutableStateFlow<String?>(null)
-    val errorMessage = _errorMessage.asStateFlow()
+    val stylusConfig: StateFlow<StylusConfig> = settingsRepository.stylusConfig
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), StylusConfig())
 
-    fun setDarkTheme(isDark: Boolean?) {
+    fun setDarkTheme(isDark: Boolean?) = update { settingsRepository.setDarkTheme(isDark) }
+    fun setDefaultFontFamily(fontFamily: String) = update { settingsRepository.setDefaultFontFamily(fontFamily) }
+    fun setExportFolderUri(uri: String?) = update { settingsRepository.setExportFolderUri(uri) }
+    fun setStylusPrimaryAction(action: StylusButtonAction) = update { settingsRepository.setStylusPrimaryAction(action) }
+    fun setStylusSecondaryAction(action: StylusButtonAction) = update { settingsRepository.setStylusSecondaryAction(action) }
+    fun setStylusOnly(enabled: Boolean) = update { settingsRepository.setStylusOnly(enabled) }
+
+    private fun update(block: suspend () -> Unit) {
         viewModelScope.launch {
-            settingsRepository.setDarkTheme(isDark)
+            runCatching { block() }.onFailure { Timber.e(it, "Settings update failed") }
         }
-    }
-
-    fun setDefaultFontFamily(fontFamily: String) {
-        viewModelScope.launch {
-            settingsRepository.setDefaultFontFamily(fontFamily)
-        }
-    }
-
-    fun setExportFolderUri(uri: String?) {
-        viewModelScope.launch {
-            settingsRepository.setExportFolderUri(uri)
-        }
-    }
-
-    fun clearError() {
-        _errorMessage.value = null
     }
 }

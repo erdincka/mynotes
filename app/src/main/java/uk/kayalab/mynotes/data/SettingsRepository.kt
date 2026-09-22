@@ -1,20 +1,17 @@
 package uk.kayalab.mynotes.data
 
 import android.content.Context
-import android.net.Uri
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
-import java.io.File
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -22,56 +19,54 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 class SettingsRepository @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private val DARK_THEME_KEY = booleanPreferencesKey("dark_theme")
-    private val DEFAULT_FONT_FAMILY_KEY = stringPreferencesKey("default_font_family")
-    private val EXPORT_FOLDER_URI_KEY = stringPreferencesKey("export_folder_uri")
+    private val darkThemeKey = booleanPreferencesKey("dark_theme")
+    private val defaultFontFamilyKey = stringPreferencesKey("default_font_family")
+    private val exportFolderUriKey = stringPreferencesKey("export_folder_uri")
+    private val stylusPrimaryKey = stringPreferencesKey("stylus_primary_action")
+    private val stylusSecondaryKey = stringPreferencesKey("stylus_secondary_action")
+    private val stylusOnlyKey = booleanPreferencesKey("stylus_only")
 
-    val isDarkTheme: Flow<Boolean?> = context.dataStore.data.map { preferences ->
-        preferences[DARK_THEME_KEY]
-    }
+    val isDarkTheme: Flow<Boolean?> = context.dataStore.data.map { it[darkThemeKey] }
 
-    val defaultFontFamily: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[DEFAULT_FONT_FAMILY_KEY] ?: "Default"
-    }
+    val defaultFontFamily: Flow<String> =
+        context.dataStore.data.map { it[defaultFontFamilyKey] ?: "Default" }
 
-    val exportFolderUri: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[EXPORT_FOLDER_URI_KEY]
-    }
+    val exportFolderUri: Flow<String?> = context.dataStore.data.map { it[exportFolderUriKey] }
 
-    suspend fun getExportDirectory(): File {
-        val exportFolderUri = exportFolderUri.first()
-        return if (exportFolderUri != null && exportFolderUri.isNotBlank()) {
-            val uri = Uri.parse(exportFolderUri)
-            if (uri.scheme == "file" && uri.path != null) {
-                File(uri.path!!)
-            } else {
-                context.filesDir
-            }
-        } else {
-            context.filesDir
-        }
+    val stylusConfig: Flow<StylusConfig> = context.dataStore.data.map { prefs ->
+        val defaults = StylusConfig()
+        StylusConfig(
+            primaryButton = StylusButtonAction.fromName(prefs[stylusPrimaryKey], defaults.primaryButton),
+            secondaryButton = StylusButtonAction.fromName(prefs[stylusSecondaryKey], defaults.secondaryButton),
+            stylusOnly = prefs[stylusOnlyKey] ?: defaults.stylusOnly
+        )
     }
 
     suspend fun setDarkTheme(isDark: Boolean?) {
-        context.dataStore.edit { preferences ->
-            if (isDark == null) {
-                preferences.remove(DARK_THEME_KEY)
-            } else {
-                preferences[DARK_THEME_KEY] = isDark
-            }
+        context.dataStore.edit { prefs ->
+            if (isDark == null) prefs.remove(darkThemeKey) else prefs[darkThemeKey] = isDark
         }
     }
 
     suspend fun setDefaultFontFamily(fontFamily: String) {
-        context.dataStore.edit { preferences ->
-            preferences[DEFAULT_FONT_FAMILY_KEY] = fontFamily
-        }
+        context.dataStore.edit { it[defaultFontFamilyKey] = fontFamily }
     }
 
     suspend fun setExportFolderUri(uri: String?) {
-        context.dataStore.edit { preferences ->
-            if (uri == null) preferences.remove(EXPORT_FOLDER_URI_KEY)
-            else preferences[EXPORT_FOLDER_URI_KEY] = uri
+        context.dataStore.edit { prefs ->
+            if (uri == null) prefs.remove(exportFolderUriKey) else prefs[exportFolderUriKey] = uri
         }
+    }
+
+    suspend fun setStylusPrimaryAction(action: StylusButtonAction) {
+        context.dataStore.edit { it[stylusPrimaryKey] = action.name }
+    }
+
+    suspend fun setStylusSecondaryAction(action: StylusButtonAction) {
+        context.dataStore.edit { it[stylusSecondaryKey] = action.name }
+    }
+
+    suspend fun setStylusOnly(enabled: Boolean) {
+        context.dataStore.edit { it[stylusOnlyKey] = enabled }
     }
 }

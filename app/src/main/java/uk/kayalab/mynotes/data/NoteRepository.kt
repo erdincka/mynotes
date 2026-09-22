@@ -1,31 +1,27 @@
 package uk.kayalab.mynotes.data
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import javax.inject.Singleton
 
+@Singleton
 class NoteRepository @Inject constructor(private val noteDao: NoteDao) {
 
-    val allNotes: Flow<List<Note>> = noteDao.getAllNotes()
+    val allSummaries: Flow<List<NoteSummary>> = noteDao.getAllSummaries()
 
-    fun getNotesByFolder(folderId: Long): Flow<List<Note>> = noteDao.getNotesByFolder(folderId)
+    suspend fun getNoteById(id: Long): Note? = noteDao.getNoteById(id)
 
-    fun searchNotes(query: String): Flow<List<Note>> = noteDao.searchNotes(query)
+    suspend fun create(name: String, folderId: Long): Long =
+        noteDao.insert(Note(name = name, folderId = folderId))
 
-    suspend fun getNoteById(id: Long): Note? = withContext(Dispatchers.IO) {
-        noteDao.getNoteById(id)
-    }
+    suspend fun updateContent(id: Long, content: String) =
+        noteDao.updateContent(id, content, System.currentTimeMillis())
 
-    suspend fun insert(note: Note): Long = withContext(Dispatchers.IO) {
-        noteDao.insert(note)
-    }
+    suspend fun rename(id: Long, name: String) =
+        noteDao.rename(id, name, System.currentTimeMillis())
 
-    suspend fun update(note: Note) = withContext(Dispatchers.IO) {
-        noteDao.update(note)
-    }
+    suspend fun moveTo(id: Long, folderId: Long) =
+        noteDao.moveTo(id, folderId, System.currentTimeMillis())
 
-    suspend fun delete(note: Note) = withContext(Dispatchers.IO) {
-        noteDao.delete(note)
-    }
+    suspend fun delete(id: Long) = noteDao.deleteById(id)
 }

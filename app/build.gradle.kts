@@ -54,6 +54,10 @@ hilt {
     enableExperimentalClasspathAggregation = true
 }
 
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     // Core & Lifecycle
     implementation(libs.androidx.appcompat)

@@ -1,146 +1,128 @@
 # MyNotes — Claude Code Guide
 
-Android note-taking app with stylus-first handwriting/drawing canvas and OneDrive sync.
+Personal Android tablet note-taking app: stylus-first handwriting on an infinite canvas, folders,
+PDF export and sharing. No cloud sync code lives in the app; PDFs reach other devices through the
+system share sheet or an export folder that a cloud app syncs.
 
 ## Build & Run
 
+There is no Android Studio on this Mac. Gradle needs the Homebrew JDK:
+
 ```bash
-# Build debug APK (from project root)
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew :app:assembleDebug
+# Compile only (fastest check)
+JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :app:compileDebugKotlin
 
-# Compile-only check (faster)
-JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew :app:compileDebugSources
+# Unit tests (pure Kotlin, no device needed)
+JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :app:testDebugUnitTest
 
-# Run from Android Studio normally — no special flags needed
+# Debug APK → app/build/outputs/apk/debug/app-debug.apk
+JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew :app:assembleDebug
+
+# Install on the tablet (USB debugging on)
+~/Library/Android/sdk/platform-tools/adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-All source changes must be on the `main` branch for Android Studio to pick them up.
-The `.claude/worktrees/` directory is ephemeral; always commit and merge to `main` when done.
+GitHub Actions (`.github/workflows/android.yml`) runs the unit tests and uploads a debug APK on
+every push to `main`. All work lands on `main`; run the tests before every push.
 
 ## Project Structure
 
 ```
 app/src/main/java/uk/kayalab/mynotes/
-├── MainActivity.kt              # Single activity, hosts NavGraph
-├── MyNotesApplication.kt        # @HiltAndroidApp + WorkManager/Hilt wiring
+├── MainActivity.kt               # Single activity, applies theme, hosts NavGraph
+├── MyNotesApplication.kt         # @HiltAndroidApp, Timber
 ├── data/
-│   ├── MyNotesDatabase.kt       # Room DB v2, migration 1→2
-│   ├── DataModule.kt            # Hilt @Module — DB, DAOs, Repositories
-│   ├── Note.kt / Folder.kt      # Room entities (@Serializable)
-│   ├── NoteDao.kt / FolderDao.kt
-│   ├── NoteRepository.kt / FolderRepository.kt
-│   └── SettingsRepository.kt    # DataStore preferences
-├── sync/
-│   ├── OneDriveAuthManager.kt   # MSAL single-account sign-in (lazy init)
-│   ├── OneDriveClient.kt        # Ktor HTTP client → Microsoft Graph API
-│   ├── SyncScheduler.kt         # Enqueues WorkManager jobs
-│   └── SyncWorker.kt            # @HiltWorker background sync
-├── ui/
-│   ├── NavGraph.kt              # Compose Navigation: folders / note/{id} / settings
-│   ├── FolderListScreen.kt      # Main screen — folder tree, note list, PDF export
-│   ├── NoteScreen.kt            # Canvas host with toolbar, auto-save
-│   ├── NoteViewModel.kt         # Stroke state, undo/redo, erase, lasso
-│   ├── SettingsScreen.kt        # Dark theme, font, export folder, OneDrive
-│   ├── SettingsViewModel.kt     # OneDrive sign-in, folder picker
-│   └── canvas/
-│       ├── CanvasView.kt        # Drawing surface — pointer input, pan/zoom
-│       ├── CanvasToolbar.kt     # Tool/color/stroke-width picker
-│       └── PdfExporter.kt       # Bounding-box layout → multi-page A4 PDF
-└── util/
-    ├── ExportManager.kt         # PNG + PDF export via SAF or internal storage
-    └── Timestamp.kt
+│   ├── MyNotesDatabase.kt        # Room v3, migrations 1→2→3, schemas exported to app/schemas
+│   ├── DataModule.kt             # Hilt: database + DAOs only (repositories are @Inject singletons)
+│   ├── Note.kt / NoteSummary.kt  # Entity; summary projection used by the list (no ink blob)
+│   ├── Folder.kt / FolderTree.kt # Entity; pure tree helpers (descendants, cycle guard, paths)
+│   ├── NoteDao.kt / FolderDao.kt # Id-based updates so the list never needs full entities
+│   ├── NoteRepository.kt / FolderRepository.kt   # deleteTree() cascades in one transaction
+│   ├── SettingsRepository.kt     # DataStore: theme, font, export folder, stylus buttons
+│   └── StylusSettings.kt         # StylusButtonAction + StylusConfig
+├── export/
+│   ├── PdfLayout.kt              # Pure A4 layout maths (unit tested)
+│   ├── PdfRenderer.kt            # Strokes → multi-page PdfDocument
+│   └── PdfExportService.kt       # Export to SAF folder / app storage, or share sheet
+└── ui/
+    ├── NavGraph.kt               # folders / note/{id} / settings
+    ├── FolderListViewModel.kt    # List state, search, selection, delete confirmation, move guard
+    ├── FolderListScreen.kt       # Tree or flat search results, dialogs
+    ├── FolderTreeItems.kt        # Row composables, overflow menus, Move/Delete/Name dialogs
+    ├── NoteViewModel.kt          # Strokes, undo/redo, load state, autosave
+    ├── NoteSaver.kt              # App-scoped save so leaving the screen cannot cancel a write
+    ├── NoteScreen.kt             # Canvas host, toolbar, save-on-exit / on-stop
+    ├── SettingsScreen.kt / SettingsViewModel.kt
+    ├── theme/MyNotesTheme.kt     # Material 3, dynamic colour on Android 12+, LocalIsDarkTheme
+    └── canvas/
+        ├── StrokeData.kt         # StrokeData, CanvasTool, StrokeCodec (the only JSON entry point)
+        ├── StrokeGeometry.kt     # Pure erase / lasso / move / bounds (unit tested)
+        ├── CanvasView.kt         # Pointer input, stylus buttons, pan/zoom, cached path drawing
+        ├── CanvasToolbar.kt
+        └── fluentui-system-icons_*.kt
 ```
 
 ## Tech Stack
 
-| Layer | Library |
-|---|---|
-| UI | Jetpack Compose + Material 3 |
-| Navigation | Navigation Compose |
-| DI | Hilt (Dagger) + KSP |
-| Database | Room v2 (SQLite) + Flow |
-| Preferences | DataStore |
-| Background work | WorkManager + `hilt-work` |
-| Networking | Ktor (OkHttp engine) |
-| Auth | MSAL (`com.microsoft.identity.client:msal:5.3.0`) |
-| Serialization | kotlinx.serialization |
-| Logging | Timber + Chucker (debug only) |
-| File sharing | FileProvider + SAF (DocumentFile) |
+Jetpack Compose + Material 3, Navigation Compose, Hilt + KSP, Room 2.6 + Flow, DataStore,
+kotlinx.serialization, Timber, DocumentFile + FileProvider. JUnit 4 for unit tests.
 
-## Key Architectural Decisions
+## Key Decisions
 
-### WorkManager + Hilt
-`MyNotesApplication` implements `Configuration.Provider` and injects `HiltWorkerFactory`.
-The WorkManager default auto-initializer is disabled in `AndroidManifest.xml` via
-`tools:node="remove"` on `WorkManagerInitializer`. Without this, `@HiltWorker` classes
-cannot be instantiated and sync crashes at runtime.
+### Ink storage and the codec
+Strokes live as JSON in `notes.content`. `StrokeCodec` is the only reader and writer: it ignores
+unknown keys so an older build can open notes written by a newer one, and it returns a failed
+`Result` rather than an empty list on bad data. `NoteViewModel` turns a failure into
+`NoteLoadState.Unreadable`, which disables editing and saving so the original bytes are never
+overwritten. Never call `Json` directly on note content.
+
+### Saving
+`NoteSaver` runs saves in an application-wide scope. `viewModelScope` is cancelled the moment the
+note screen is popped, which used to race the final write. Autosave fires three seconds after the
+last change; `saveNow()` also runs on back, on dispose, on `ON_STOP` and in `onCleared()`, all of
+which are no-ops when nothing changed.
+
+### Stylus buttons
+Hold semantics: `CanvasView` reads `currentEvent.buttons` at stroke start and maps
+`isPrimaryPressed` / `isSecondaryPressed` through `StylusConfig` to a tool for that stroke only.
+Compose folds `BUTTON_STYLUS_PRIMARY` into `isPrimaryPressed` (verified in the 1.8 bytecode).
+Press-triggered actions (Undo) come through a `View.OnGenericMotionListener`, because button
+presses while hovering never reach Compose pointer input. Pens that report `PointerType.Eraser`
+always erase.
 
 ### Canvas coordinate system
-Strokes are stored in **content space** (independent of pan/zoom).
-Screen → content: `pos = (touchPos - panOffset) / zoomScale`
-Content → screen: `screenPos = contentPos * zoomScale + panOffset`
-`PdfExporter` works directly in content space and scales to fit A4 width.
-
-### Two-finger pan/zoom
-Detected inside `awaitEachGesture` — when `event.changes.count { it.pressed } >= 2`,
-the in-progress stroke is cancelled and a pan/zoom sub-loop takes over.
-The `PointerType` guard was deliberately removed because some devices report `Unknown`.
-
-### Auto-save
-`NoteScreen` has a `DisposableEffect` that calls `saveNote()` on dispose (navigate-away).
-A `LaunchedEffect(strokes)` with a 3-second `delay` provides debounced mid-session saves.
+Strokes are stored in content space. Screen → content: `(touch - pan) / zoom`. Built `Path`s are
+cached per stroke id and reused while the `StrokeData` instance is identical, so a frame only
+rebuilds paths for strokes that changed. Font sizes are content pixels, the same on screen and in
+the PDF.
 
 ### PDF export
-Full bounding box of all stroke points is computed. Scale = `usablePageWidth / contentWidth`.
-All strokes are rendered on every page with no pre-filtering — the PDF canvas clips
-automatically. This guarantees no strokes are accidentally omitted.
+`PdfLayout.compute(bounds, referenceWidth)` fits content to the A4 width but never enlarges it
+beyond what a canvas `referenceWidth` (the device width) would need, so a small sketch stays small.
+Every stroke is drawn on every page and the page clips.
 
-### Database migrations
-- v1 → v2: adds `isSynced` column to **both** `notes` AND `folders` tables.
-  The migration script must include both ALTER TABLE statements.
+### Folders
+Root notes use `folderId = 0`; root folders use `parentId = null`. Deleting a folder removes its
+whole subtree and their notes in one transaction after a confirmation that states the counts.
+`FolderTree.canMove` blocks moving a folder into itself or a descendant.
 
-## OneDrive Setup (per developer)
+### Database
+`exportSchema = true`; schemas are committed under `app/schemas`. There is no destructive
+fallback: every entity change needs a migration. Migration 2→3 recreates both tables to drop the
+old `isSynced` columns.
 
-The app is pre-registered on Azure (`client_id` placeholder in `res/raw/auth_config_single_account.json`).
-To enable sign-in on your machine you need to add your signing certificate hash:
+## Conventions
 
-```bash
-# Get debug keystore SHA1 hash (base64)
-keytool -exportcert -alias androiddebugkey \
-  -keystore ~/.android/debug.keystore | openssl sha1 -binary | openssl base64
-```
+- No comments unless the WHY is non-obvious.
+- Timber only; never `Log.*` or `println`.
+- Anything launched in `viewModelScope` is wrapped in `runCatching` or the view model's
+  `launchSafely`; an unhandled exception there crashes the app.
+- Values read inside a running `pointerInput` coroutine go through `rememberUpdatedState`.
+- UI text is en_GB.
 
-Replace `REPLACE_WITH_BASE64_SHA1_OF_SIGNING_CERT` in:
-1. `app/src/main/res/raw/auth_config_single_account.json` → `redirect_uri`
-2. `app/src/main/AndroidManifest.xml` → `BrowserTabActivity` intent-filter `android:path`
+## Roadmap
 
-OneDrive sign-in works without this for builds that don't touch the sign-in button.
-MSAL initialises lazily — the placeholder does not crash the app at startup.
-
-## Coding Conventions
-
-- **No comments** unless the WHY is non-obvious (hidden constraint, workaround, subtle invariant).
-- **Logging**: Timber only — never `Log.*` or `println`.
-- **Error handling**: coroutine failures inside `viewModelScope.launch {}` propagate as
-  unhandled exceptions and **crash the app**. Always wrap risky calls in `try/catch` or
-  use `runCatching` / `Result`.
-- **State**: prefer `MutableStateFlow` in ViewModels; use `SnapshotStateList` (not
-  `mutableStateOf<List>`) for collections that are appended to frequently in hot paths.
-- **Dependency injection**: add new singletons with `@Singleton @Inject constructor(...)` —
-  no `@Provides` needed unless the type comes from a library. Add to `DataModule` only for
-  Room/database bindings.
-- **Serialization**: `StrokeData` uses `@Serializable` + a custom `OffsetSerializer`;
-  keep both in sync if the data class changes.
-
-## Common Pitfalls
-
-- **`rememberUpdatedState` inside a running gesture coroutine** does not update between
-  loop iterations (recomposition doesn't run). Read mutable state vars directly.
-- **`viewModelScope.launch {}` exceptions crash the app.** Unhandled coroutine exceptions
-  in `launch {}` are treated as uncaught — always catch inside the lambda.
-- **Room schema validation**: every field in every `@Entity` must be covered by a migration
-  or the app crashes on upgrade. Adding `fallbackToDestructiveMigration()` only helps when
-  no migration is defined; a partial migration that leaves a mismatch still crashes.
-- **WorkManager + Hilt**: workers annotated `@HiltWorker` require the custom
-  `HiltWorkerFactory` to be set via `Configuration.Provider`. The default WorkManager
-  factory cannot create Hilt workers.
+Phase 2 (canvas feel): pressure-sensitive width, motion prediction, stylus-only tuning, possibly
+Jetpack Ink. Phase 3 (storage): UUID ids, one file per note. Phase 4 (UI polish): long-press
+selection, page templates, thumbnails. Extras on request: handwriting recognition, images, PDF
+annotation, shapes.

@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [Note::class, Folder::class],
     version = 3,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class MyNotesDatabase : RoomDatabase() {
 

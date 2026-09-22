@@ -3,7 +3,6 @@ package uk.kayalab.mynotes.ui.canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -20,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import uk.kayalab.mynotes.ui.theme.LocalIsDarkTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,14 +33,16 @@ fun CanvasToolbar(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onBack: () -> Unit,
-    onSave: () -> Unit,
+    onShare: () -> Unit,
+    onExport: () -> Unit,
+    isDirty: Boolean,
     currentFontSize: Float,
     onFontSizeChanged: (Float) -> Unit,
     currentFontFamily: String,
     onFontFamilyChanged: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val isDark = isSystemInDarkTheme()
+    val isDark = LocalIsDarkTheme.current
     val baseColors = listOf(
         Color.Black, Color.DarkGray, Color.Gray, Color.LightGray, Color.White,
         Color.Red, Color.Magenta, Color.Yellow, Color.Green, Color.Cyan, Color.Blue
@@ -115,8 +117,17 @@ fun CanvasToolbar(
 
                 VerticalDivider(modifier = Modifier.height(32.dp).padding(horizontal = 8.dp))
 
-                IconButton(onClick = onSave) {
-                    Icon(Icons.Default.Save, contentDescription = "Save")
+                Text(
+                    if (isDirty) "Unsaved" else "Saved",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                IconButton(onClick = onExport) {
+                    Icon(Icons.Default.SaveAlt, contentDescription = "Export PDF to folder")
+                }
+                IconButton(onClick = onShare) {
+                    Icon(Icons.Default.Share, contentDescription = "Send as PDF")
                 }
             }
 
@@ -191,7 +202,7 @@ fun CanvasToolbar(
                         Slider(
                             value = currentFontSize,
                             onValueChange = onFontSizeChanged,
-                            valueRange = 8f..72f,
+                            valueRange = 12f..120f,
                             modifier = Modifier.weight(1f)
                         )
                     } else {

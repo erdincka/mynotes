@@ -1,19 +1,40 @@
 package uk.kayalab.mynotes.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.hilt.navigation.compose.hiltViewModel
-import uk.kayalab.mynotes.ui.SettingsViewModel
-import uk.kayalab.mynotes.ui.canvas.*
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import uk.kayalab.mynotes.ui.canvas.CanvasScreen
+import uk.kayalab.mynotes.ui.canvas.CanvasTool
+import uk.kayalab.mynotes.ui.canvas.CanvasToolbar
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val defaultToolWidths = mapOf(
+    CanvasTool.PEN to 5f,
+    CanvasTool.BRUSH to 8f,
+    CanvasTool.ERASER to 25f,
+    CanvasTool.HIGHLIGHTER to 25f,
+    CanvasTool.LASSO to 1f,
+    CanvasTool.TEXT to 1f
+)
+
 @Composable
 fun NoteScreen(
     noteId: Long,
@@ -22,139 +43,75 @@ fun NoteScreen(
     settingsViewModel: SettingsViewModel = hiltViewModel()
 ) {
     val defaultFontFamily by settingsViewModel.defaultFontFamily.collectAsState()
-    
+    val stylusConfig by settingsViewModel.stylusConfig.collectAsState()
+    val loadState by viewModel.loadState.collectAsState()
+    val isDirty by viewModel.isDirty.collectAsState()
+    val message by viewModel.message.collectAsState()
+
     var currentTool by remember { mutableStateOf(CanvasTool.PEN) }
     var currentColor by remember { mutableStateOf(Color.Black) }
-    var currentStrokeWidth by remember { mutableFloatStateOf(5f) }
-    var previousStrokeWidth by remember { mutableFloatStateOf(5f) }
-    
-    var currentFontSize by remember { mutableFloatStateOf(32f) }
+    val toolWidths = remember { mutableStateMapOf<CanvasTool, Float>().apply { putAll(defaultToolWidths) } }
+    var currentFontSize by remember { mutableStateOf(40f) }
     var currentFontFamily by remember { mutableStateOf("Default") }
 
-    // Initialize font family from settings if it's still Default
     LaunchedEffect(defaultFontFamily) {
-        if (currentFontFamily == "Default") {
-            currentFontFamily = defaultFontFamily
-        }
-    }
-    
-    val handleToolSelected: (CanvasTool) -> Unit = { selectedTool ->
-        if (selectedTool == CanvasTool.HIGHLIGHTER && currentTool != CanvasTool.HIGHLIGHTER) {
-            previousStrokeWidth = currentStrokeWidth
-            currentStrokeWidth = 25f
-        } else if (selectedTool == CanvasTool.ERASER && currentTool != CanvasTool.ERASER) {
-            previousStrokeWidth = currentStrokeWidth
-            currentStrokeWidth = 25f
-        } else if (currentTool == CanvasTool.HIGHLIGHTER && selectedTool != CanvasTool.HIGHLIGHTER) {
-            currentStrokeWidth = previousStrokeWidth
-        } else if (currentTool == CanvasTool.ERASER && selectedTool != CanvasTool.ERASER) {
-            currentStrokeWidth = previousStrokeWidth
-        }
-        currentTool = selectedTool
+        if (currentFontFamily == "Default") currentFontFamily = defaultFontFamily
     }
 
-    val strokes by viewModel.strokes.collectAsState()
-    var lastSavedStrokes by remember { mutableStateOf<List<StrokeData>?>(null) }
-    
-    // Initialize lastSavedStrokes when strokes are first loaded from DB
-    LaunchedEffect(strokes) {
-        if (lastSavedStrokes == null && strokes.isNotEmpty()) {
-            lastSavedStrokes = strokes
-        }
-    }
+    LaunchedEffect(noteId) { viewModel.loadNote(noteId) }
 
-    // Auto-save 3 seconds after last stroke change
-    LaunchedEffect(strokes) {
-        if (lastSavedStrokes != null && strokes != lastSavedStrokes) {
-            delay(3000)
-            viewModel.saveNote()
-            lastSavedStrokes = strokes
-        }
-    }
-
-    // Always save when leaving the screen so exports are up-to-date
-    DisposableEffect(Unit) {
-        onDispose { viewModel.saveNote() }
-    }
-
-    val hasUnsavedChanges = remember(strokes, lastSavedStrokes) {
-        lastSavedStrokes != null && strokes != lastSavedStrokes
-    }
+    // Saves on navigation away and when the app goes to the background; both are cheap no-ops when clean.
+    DisposableEffect(Unit) { onDispose { viewModel.saveNow() } }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { viewModel.saveNow() }
 
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    var showExitDialog by remember { mutableStateOf(false) }
-
-    val handleBack = {
-        if (hasUnsavedChanges) {
-            showExitDialog = true
-        } else {
-            onBack()
+    LaunchedEffect(message) {
+        message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeMessage()
+        }
+    }
+    LaunchedEffect(loadState) {
+        when (loadState) {
+            is NoteLoadState.Unreadable ->
+                snackbarHostState.showSnackbar("This note could not be read, so editing is disabled to protect its contents.")
+            NoteLoadState.Missing -> snackbarHostState.showSnackbar("This note no longer exists.")
+            else -> Unit
         }
     }
 
+    val handleBack = {
+        viewModel.saveNow()
+        onBack()
+    }
     BackHandler(onBack = handleBack)
 
-    if (showExitDialog) {
-        AlertDialog(
-            onDismissRequest = { showExitDialog = false },
-            title = { Text("Unsaved Changes") },
-            text = { Text("You have unsaved changes. Do you want to save before leaving?") },
-            confirmButton = {
-                Button(onClick = {
-                    viewModel.saveNote()
-                    lastSavedStrokes = strokes
-                    showExitDialog = false
-                    onBack()
-                }) { Text("Save") }
-            },
-            dismissButton = {
-                Row {
-                    TextButton(onClick = {
-                        showExitDialog = false
-                        onBack()
-                    }) { Text("Discard") }
-                    TextButton(onClick = {
-                        showExitDialog = false
-                    }) { Text("Cancel") }
-                }
-            }
-        )
-    }
-
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { padding ->
+    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             CanvasScreen(
-                noteId = noteId,
                 viewModel = viewModel,
                 currentTool = currentTool,
                 currentColor = currentColor,
-                currentStrokeWidth = currentStrokeWidth,
+                toolWidths = toolWidths,
                 currentFontSize = currentFontSize,
                 currentFontFamily = currentFontFamily,
-                onToolSelected = handleToolSelected,
+                stylusConfig = stylusConfig,
                 modifier = Modifier.fillMaxSize()
             )
 
             CanvasToolbar(
                 currentTool = currentTool,
-                onToolSelected = handleToolSelected,
+                onToolSelected = { currentTool = it },
                 currentColor = currentColor,
                 onColorSelected = { currentColor = it },
-                currentStrokeWidth = currentStrokeWidth,
-                onStrokeWidthChanged = { currentStrokeWidth = it },
+                currentStrokeWidth = toolWidths[currentTool] ?: 5f,
+                onStrokeWidthChanged = { toolWidths[currentTool] = it },
                 onUndo = { viewModel.undo() },
                 onRedo = { viewModel.redo() },
                 onBack = handleBack,
-                onSave = { 
-                    viewModel.saveNote()
-                    lastSavedStrokes = strokes
-                    scope.launch {
-                        snackbarHostState.showSnackbar("Note saved successfully")
-                    }
-                },
+                onShare = { viewModel.sharePdf() },
+                onExport = { viewModel.exportPdf() },
+                isDirty = isDirty,
                 currentFontSize = currentFontSize,
                 onFontSizeChanged = { currentFontSize = it },
                 currentFontFamily = currentFontFamily,

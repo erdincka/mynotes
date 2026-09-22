@@ -1,295 +1,63 @@
 package uk.kayalab.mynotes.ui
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
+import androidx.compose.material.icons.automirrored.filled.NoteAdd
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SortByAlpha
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.core.content.FileProvider
-import androidx.documentfile.provider.DocumentFile
 import uk.kayalab.mynotes.data.Folder
-import uk.kayalab.mynotes.data.FolderRepository
-import uk.kayalab.mynotes.data.Note
-import uk.kayalab.mynotes.data.NoteRepository
-import uk.kayalab.mynotes.data.SettingsRepository
-import uk.kayalab.mynotes.ui.canvas.PdfExporter
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import java.io.File
+import uk.kayalab.mynotes.data.FolderTree
+import uk.kayalab.mynotes.data.NoteSummary
 import java.text.SimpleDateFormat
-import java.util.*
-import javax.inject.Inject
-import kotlin.math.roundToInt
-import timber.log.Timber
+import java.util.Date
+import java.util.Locale
 
-/** Converts a SAF tree URI to a human-readable path like "Internal Storage/Documents/Notes". */
-internal fun android.net.Uri.toReadablePath(): String = try {
-    val docId = android.provider.DocumentsContract.getTreeDocumentId(this) ?: ""
-    if (docId.contains(':')) {
-        val colon = docId.indexOf(':')
-        val vol = docId.substring(0, colon)
-        val path = docId.substring(colon + 1)
-        val root = if (vol == "primary") "Internal Storage" else vol
-        if (path.isEmpty()) root else "$root/$path"
-    } else {
-        pathSegments.lastOrNull() ?: toString()
-    }
-} catch (_: Exception) {
-    pathSegments.lastOrNull() ?: toString()
-}
-
-enum class SortOrder {
-    NAME, DATE
-}
-
-data class FolderListState(
-    val folders: List<Folder> = emptyList(),
-    val notes: List<Note> = emptyList(),
-    val expandedFolders: Set<Long> = emptySet(),
-    val selectedNotes: Set<Long> = emptySet(),
-    val selectedFolders: Set<Long> = emptySet(),
-    val isLoading: Boolean = true,
-    val sortOrder: SortOrder = SortOrder.NAME,
-    val searchQuery: String = ""
-)
-
-@HiltViewModel
-class FolderListViewModel @Inject constructor(
-    private val folderRepository: FolderRepository,
-    private val noteRepository: NoteRepository,
-    private val settingsRepository: SettingsRepository
-) : ViewModel() {
-    private val _state = MutableStateFlow(FolderListState())
-    val state: StateFlow<FolderListState> = _state
-
-    private val _sortOrder = MutableStateFlow(SortOrder.NAME)
-    private val _searchQuery = MutableStateFlow("")
-
-    init {
-        viewModelScope.launch {
-            combine(
-                folderRepository.allFolders,
-                noteRepository.allNotes,
-                _sortOrder,
-                _searchQuery
-            ) { folders, notes, sortOrder, query ->
-                val filteredFolders = if (query.isBlank()) folders
-                else folders.filter { it.name.contains(query, ignoreCase = true) }
-                val filteredNotes = if (query.isBlank()) notes
-                else notes.filter { it.name.contains(query, ignoreCase = true) }
-
-                val sortedFolders = when (sortOrder) {
-                    SortOrder.NAME -> filteredFolders.sortedBy { it.name.lowercase() }
-                    SortOrder.DATE -> filteredFolders.sortedByDescending { it.updatedAt }
-                }
-                val sortedNotes = when (sortOrder) {
-                    SortOrder.NAME -> filteredNotes.sortedBy { it.name.lowercase() }
-                    SortOrder.DATE -> filteredNotes.sortedByDescending { it.updatedAt }
-                }
-                _state.value.copy(
-                    folders = sortedFolders,
-                    notes = sortedNotes,
-                    isLoading = false,
-                    sortOrder = sortOrder,
-                    searchQuery = query
-                )
-            }.collect {
-                _state.value = it
-            }
-        }
-    }
-
-    fun setSortOrder(order: SortOrder) {
-        _sortOrder.value = order
-    }
-
-    fun setSearchQuery(query: String) {
-        _searchQuery.value = query
-    }
-
-    fun toggleFolder(folderId: Long) {
-        val current = _state.value.expandedFolders
-        _state.value = _state.value.copy(
-            expandedFolders = if (current.contains(folderId)) current - folderId else current + folderId
-        )
-    }
-
-    fun toggleNoteSelection(noteId: Long) {
-        val current = _state.value.selectedNotes
-        _state.value = _state.value.copy(
-            selectedNotes = if (current.contains(noteId)) current - noteId else current + noteId
-        )
-    }
-    
-    fun toggleFolderSelection(folderId: Long) {
-        val current = _state.value.selectedFolders
-        _state.value = _state.value.copy(
-            selectedFolders = if (current.contains(folderId)) current - folderId else current + folderId
-        )
-    }
-
-    fun deleteSelected() {
-        viewModelScope.launch {
-            _state.value.selectedNotes.forEach { id ->
-                _state.value.notes.find { it.id == id }?.let { noteRepository.delete(it) }
-            }
-            _state.value.selectedFolders.forEach { id ->
-                _state.value.folders.find { it.id == id }?.let { folderRepository.delete(it) }
-            }
-            _state.value = _state.value.copy(selectedNotes = emptySet(), selectedFolders = emptySet())
-        }
-    }
-
-    fun moveSelectedTo(targetFolderId: Long?) {
-        viewModelScope.launch {
-            _state.value.selectedNotes.forEach { id ->
-                _state.value.notes.find { it.id == id }?.let { noteRepository.update(it.copy(folderId = targetFolderId ?: 0L)) }
-            }
-            _state.value.selectedFolders.forEach { id ->
-                if (id != targetFolderId) {
-                    _state.value.folders.find { it.id == id }?.let { folderRepository.update(it.copy(parentId = targetFolderId)) }
-                }
-            }
-            _state.value = _state.value.copy(selectedNotes = emptySet(), selectedFolders = emptySet())
-        }
-    }
-
-    fun createFolder(name: String, parentId: Long?) {
-        viewModelScope.launch {
-            folderRepository.insert(Folder(name = name, parentId = parentId))
-        }
-    }
-
-    fun createNote(name: String, folderId: Long) {
-        viewModelScope.launch {
-            noteRepository.insert(Note(name = name, folderId = folderId))
-        }
-    }
-    
-    fun renameNote(note: Note, newName: String) {
-        viewModelScope.launch {
-            noteRepository.update(note.copy(name = newName))
-        }
-    }
-    
-    fun renameFolder(folder: Folder, newName: String) {
-        viewModelScope.launch {
-            folderRepository.update(folder.copy(name = newName))
-        }
-    }
-    
-    fun deleteNote(note: Note) {
-        viewModelScope.launch {
-            noteRepository.delete(note)
-        }
-    }
-    
-    fun deleteFolder(folder: Folder) {
-        viewModelScope.launch {
-            folderRepository.delete(folder)
-        }
-    }
-
-    fun exportNoteToPdf(
-        context: android.content.Context,
-        note: Note,
-        onComplete: (android.net.Uri, String) -> Unit,
-        onError: (String) -> Unit
-    ) {
-        viewModelScope.launch {
-            val safeName = note.name.toSafeFileName()
-            val dateStr = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
-            val fileName = "$dateStr-$safeName.pdf"
-
-            val exportFolderUri = settingsRepository.exportFolderUri.first()
-
-            if (exportFolderUri != null) {
-                try {
-                    val treeUri = android.net.Uri.parse(exportFolderUri)
-                    val docDir = DocumentFile.fromTreeUri(context, treeUri)
-                        ?: run { onError("Invalid export folder — please re-select in Settings"); return@launch }
-
-                    docDir.findFile(fileName)?.delete()
-                    val docFile = docDir.createFile("application/pdf", fileName)
-                        ?: run { onError("Cannot create file in export folder"); return@launch }
-
-                    context.contentResolver.openOutputStream(docFile.uri)?.use { outputStream ->
-                        val result = PdfExporter(context).exportNote(note, outputStream)
-                        if (result.isSuccess) {
-                            val folderDisplay = treeUri.toReadablePath()
-                            onComplete(docFile.uri, "$folderDisplay/$fileName")
-                        } else {
-                            onError("PDF export failed: ${result.exceptionOrNull()?.message}")
-                        }
-                    } ?: onError("Cannot open output stream for export folder")
-                } catch (e: Exception) {
-                    Timber.e(e, "FolderListViewModel: SAF export failed")
-                    onError("Export failed: ${e.message}")
-                }
-            } else {
-                try {
-                    val exportDir = File(context.getExternalFilesDir(null), "Exports")
-                    exportDir.mkdirs()
-                    val outputFile = File(exportDir, fileName)
-                    outputFile.outputStream().use { outputStream ->
-                        val result = PdfExporter(context).exportNote(note, outputStream)
-                        if (result.isSuccess) {
-                            val uri = FileProvider.getUriForFile(
-                                context,
-                                "${context.packageName}.provider",
-                                outputFile
-                            )
-                            onComplete(uri, "App Storage/Exports/$fileName")
-                        } else {
-                            onError("PDF export failed: ${result.exceptionOrNull()?.message}")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Timber.e(e, "FolderListViewModel: file export failed")
-                    onError("Export failed: ${e.message}")
-                }
-            }
-        }
-    }
-
-    private fun buildFolderPath(folderId: Long, folders: List<Folder>): List<String> {
-        val pathNames = mutableListOf<String>()
-        var currentFolderId = folderId
-        while (currentFolderId != 0L) {
-            val folder = folders.find { it.id == currentFolderId } ?: break
-            pathNames.add(0, folder.name.toSafeFileName())
-            currentFolderId = folder.parentId ?: 0L
-        }
-        return pathNames
-    }
-}
-
-enum class CreateDialogType {
-    FOLDER, NOTE, RENAME_NOTE, RENAME_FOLDER
+private sealed interface Dialog {
+    data class NewFolder(val parentId: Long?) : Dialog
+    data class NewNote(val folderId: Long) : Dialog
+    data class RenameNote(val note: NoteSummary) : Dialog
+    data class RenameFolder(val folder: Folder) : Dialog
+    data object Move : Dialog
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -300,75 +68,64 @@ fun FolderListScreen(
     viewModel: FolderListViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
-    val context = LocalContext.current
-    var showDialog by remember { mutableStateOf(false) }
-    var dialogType by remember { mutableStateOf(CreateDialogType.NOTE) }
-    var newItemName by remember { mutableStateOf("") }
-    var targetFolderId by remember { mutableStateOf<Long?>(null) }
-    var itemToRename by remember { mutableStateOf<Any?>(null) }
-
-    var showMoveDialog by remember { mutableStateOf(false) }
+    val allFolders by viewModel.allFolders.collectAsState()
+    var dialog by remember { mutableStateOf<Dialog?>(null) }
     var showSortMenu by remember { mutableStateOf(false) }
     var searchActive by remember { mutableStateOf(false) }
-    val folderBounds = remember { mutableStateMapOf<Long, Rect>() }
-
-    val dateFormat = remember { SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault()) }
+    val dateFormat = remember { SimpleDateFormat("d MMM yyyy HH:mm", Locale.UK) }
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(state.message) {
+        state.message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.consumeMessage()
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             Column {
                 TopAppBar(
-                    title = { Text("My Notes") },
+                    title = { Text(if (state.hasSelection) "${state.selectedNotes.size + state.selectedFolders.size} selected" else "My Notes") },
                     actions = {
-                        if (state.selectedNotes.isNotEmpty() || state.selectedFolders.isNotEmpty()) {
-                            IconButton(onClick = { showMoveDialog = true }) {
-                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move Selected")
+                        if (state.hasSelection) {
+                            IconButton(onClick = { dialog = Dialog.Move }) {
+                                Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move selected")
                             }
-                            IconButton(onClick = { viewModel.deleteSelected() }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete Selected")
+                            IconButton(onClick = { viewModel.requestDeleteSelection() }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Delete selected")
+                            }
+                            IconButton(onClick = { viewModel.clearSelection() }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear selection")
                             }
                         }
-
+                        IconButton(onClick = { dialog = Dialog.NewFolder(null) }) {
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = "New folder")
+                        }
                         IconButton(onClick = {
                             searchActive = !searchActive
                             if (!searchActive) viewModel.setSearchQuery("")
                         }) {
-                            Icon(
-                                if (searchActive) Icons.Default.SearchOff else Icons.Default.Search,
-                                contentDescription = "Search"
-                            )
+                            Icon(if (searchActive) Icons.Default.SearchOff else Icons.Default.Search, contentDescription = "Search")
                         }
-
                         Box {
                             IconButton(onClick = { showSortMenu = true }) {
                                 Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
                             }
-                            DropdownMenu(
-                                expanded = showSortMenu,
-                                onDismissRequest = { showSortMenu = false }
-                            ) {
+                            DropdownMenu(expanded = showSortMenu, onDismissRequest = { showSortMenu = false }) {
                                 DropdownMenuItem(
-                                    text = { Text("Sort by Name") },
-                                    onClick = {
-                                        viewModel.setSortOrder(SortOrder.NAME)
-                                        showSortMenu = false
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.SortByAlpha, contentDescription = null) }
+                                    text = { Text("Sort by name") },
+                                    leadingIcon = { Icon(Icons.Default.SortByAlpha, contentDescription = null) },
+                                    onClick = { viewModel.setSortOrder(SortOrder.NAME); showSortMenu = false }
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("Sort by Date") },
-                                    onClick = {
-                                        viewModel.setSortOrder(SortOrder.DATE)
-                                        showSortMenu = false
-                                    },
-                                    leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null) }
+                                    text = { Text("Sort by date") },
+                                    leadingIcon = { Icon(Icons.Default.Schedule, contentDescription = null) },
+                                    onClick = { viewModel.setSortOrder(SortOrder.DATE); showSortMenu = false }
                                 )
                             }
                         }
-
                         IconButton(onClick = onSettingsClick) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
                         }
@@ -377,8 +134,8 @@ fun FolderListScreen(
                 if (searchActive) {
                     OutlinedTextField(
                         value = state.searchQuery,
-                        onValueChange = { viewModel.setSearchQuery(it) },
-                        placeholder = { Text("Search notes and folders…") },
+                        onValueChange = viewModel::setSearchQuery,
+                        placeholder = { Text("Search notes and folders") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                         trailingIcon = {
                             if (state.searchQuery.isNotEmpty()) {
@@ -388,458 +145,163 @@ fun FolderListScreen(
                             }
                         },
                         singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
                     )
                 }
             }
         },
         floatingActionButton = {
-            Column(horizontalAlignment = Alignment.End) {
-                FloatingActionButton(
-                    onClick = {
-                        dialogType = CreateDialogType.FOLDER
-                        targetFolderId = null
-                        newItemName = ""
-                        showDialog = true
-                    },
-                    modifier = Modifier.padding(bottom = 8.dp)
-                ) {
-                    Icon(Icons.Default.CreateNewFolder, contentDescription = "New Root Folder")
-                }
-                FloatingActionButton(
-                    onClick = {
-                        dialogType = CreateDialogType.NOTE
-                        targetFolderId = 0L
-                        newItemName = ""
-                        showDialog = true
-                    }
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = "New Root Note")
-                }
-            }
+            ExtendedFloatingActionButton(
+                onClick = { dialog = Dialog.NewNote(ROOT_FOLDER_ID) },
+                icon = { Icon(Icons.AutoMirrored.Filled.NoteAdd, contentDescription = null) },
+                text = { Text("New note") }
+            )
         }
     ) { padding ->
         if (state.isLoading) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-            ) {
+            return@Scaffold
+        }
+        LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+            val context = ItemContext(
+                state = state,
+                allFolders = allFolders,
+                viewModel = viewModel,
+                dateFormat = dateFormat,
+                onNoteClick = onNoteClick,
+                openDialog = { dialog = it }
+            )
+            if (state.isSearching) {
+                searchResults(context)
+            } else {
+                tree(context, parentId = null, level = 0)
+            }
+            if (state.folders.isEmpty() && state.notes.isEmpty()) {
                 item {
-                    Text(
-                        "All Files",
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(16.dp),
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                }
-
-                renderTree(
-                    folders = state.folders,
-                    notes = state.notes,
-                    parentId = null,
-                    level = 0,
-                    state = state,
-                    viewModel = viewModel,
-                    onNoteClick = onNoteClick,
-                    dateFormat = dateFormat,
-                    onDialogRequest = { type, pid, item ->
-                        dialogType = type
-                        targetFolderId = pid
-                        itemToRename = item
-                        newItemName = when (item) {
-                            is Note -> item.name
-                            is Folder -> item.name
-                            else -> ""
-                        }
-                        showDialog = true
-                    },
-                    onUpdateFolderBounds = { id, rect -> folderBounds[id] = rect },
-                    onDrop = { pos, note, folder ->
-                        val targetId = folderBounds.entries.find { it.value.contains(pos) }?.key
-                        if (note != null) {
-                            if (!state.selectedNotes.contains(note.id)) {
-                                viewModel.toggleNoteSelection(note.id)
-                            }
-                            viewModel.moveSelectedTo(targetId)
-                        } else if (folder != null) {
-                            if (!state.selectedFolders.contains(folder.id)) {
-                                viewModel.toggleFolderSelection(folder.id)
-                            }
-                            viewModel.moveSelectedTo(targetId)
-                        }
-                    },
-                    onExportPdf = { note ->
-                        viewModel.exportNoteToPdf(
-                            context = context,
-                            note = note,
-                            onComplete = { _, savedPath ->
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("Exported: ${savedPath.substringAfterLast('/')}")
-                                }
-                            },
-                            onError = { message ->
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("Export failed: $message")
-                                }
-                            }
+                    Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            if (state.isSearching) "Nothing matches \"${state.searchQuery}\"." else "No notes yet. Tap New note to start.",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                    }
-                )
-                
-                if (state.folders.isEmpty() && state.notes.isEmpty()) {
-                    item {
-                        Box(modifier = Modifier.fillParentMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No folders or notes yet.")
-                        }
                     }
                 }
             }
         }
     }
 
-    if (showDialog) {
-        AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = { 
-                Text(when(dialogType) {
-                    CreateDialogType.FOLDER -> "New Folder"
-                    CreateDialogType.NOTE -> "New Note"
-                    CreateDialogType.RENAME_NOTE, CreateDialogType.RENAME_FOLDER -> "Rename"
-                }) 
-            },
-            text = {
-                OutlinedTextField(
-                    value = newItemName,
-                    onValueChange = { newItemName = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newItemName.isNotBlank()) {
-                            when (dialogType) {
-                                CreateDialogType.FOLDER -> viewModel.createFolder(newItemName, targetFolderId)
-                                CreateDialogType.NOTE -> viewModel.createNote(newItemName, targetFolderId ?: 0L)
-                                CreateDialogType.RENAME_NOTE -> (itemToRename as? Note)?.let { viewModel.renameNote(it, newItemName) }
-                                CreateDialogType.RENAME_FOLDER -> (itemToRename as? Folder)?.let { viewModel.renameFolder(it, newItemName) }
-                            }
-                            showDialog = false
-                        }
-                    }
-                ) {
-                    Text(if (dialogType == CreateDialogType.RENAME_NOTE || dialogType == CreateDialogType.RENAME_FOLDER) "Rename" else "Create")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDialog = false }) {
-                    Text("Cancel")
-                }
+    when (val current = dialog) {
+        null -> Unit
+        is Dialog.NewFolder -> NameDialog("New folder", "Create", "", onDismiss = { dialog = null }) {
+            viewModel.createFolder(it, current.parentId)
+            dialog = null
+        }
+        is Dialog.NewNote -> NameDialog("New note", "Create", defaultNoteName(), onDismiss = { dialog = null }) {
+            viewModel.createNote(it, current.folderId, onCreated = onNoteClick)
+            dialog = null
+        }
+        is Dialog.RenameNote -> NameDialog("Rename note", "Rename", current.note.name, onDismiss = { dialog = null }) {
+            viewModel.renameNote(current.note.id, it)
+            dialog = null
+        }
+        is Dialog.RenameFolder -> NameDialog("Rename folder", "Rename", current.folder.name, onDismiss = { dialog = null }) {
+            viewModel.renameFolder(current.folder.id, it)
+            dialog = null
+        }
+        Dialog.Move -> MoveDialog(
+            folders = allFolders,
+            isAllowed = { target -> state.selectedFolders.all { viewModel.canMoveFolder(it, target) } },
+            onDismiss = { dialog = null },
+            onMove = {
+                viewModel.moveSelectedTo(it)
+                dialog = null
             }
         )
     }
 
-    if (showMoveDialog) {
-        MoveDialog(
-            folders = state.folders,
-            onDismiss = { showMoveDialog = false },
-            onMove = { targetId ->
-                viewModel.moveSelectedTo(targetId)
-                showMoveDialog = false
-            }
-        )
+    state.pendingDelete?.let { request ->
+        DeleteConfirmDialog(request, onDismiss = viewModel::cancelDelete, onConfirm = viewModel::confirmDelete)
+    }
+}
+
+private fun defaultNoteName(): String =
+    "Note " + SimpleDateFormat("d MMM yyyy HH:mm", Locale.UK).format(Date())
+
+private class ItemContext(
+    val state: FolderListState,
+    val allFolders: List<Folder>,
+    val viewModel: FolderListViewModel,
+    val dateFormat: SimpleDateFormat,
+    val onNoteClick: (Long) -> Unit,
+    val openDialog: (Dialog) -> Unit
+)
+
+private fun LazyListScope.tree(ctx: ItemContext, parentId: Long?, level: Int) {
+    val folders = ctx.state.folders.filter { it.parentId == parentId }
+    val notes = ctx.state.notes.filter { it.folderId == (parentId ?: ROOT_FOLDER_ID) }
+
+    folders.forEach { folder ->
+        val isExpanded = folder.id in ctx.state.expandedFolders
+        item(key = "f_${folder.id}") { folderRow(ctx, folder, level, isExpanded, pathLabel = null) }
+        if (isExpanded) tree(ctx, folder.id, level + 1)
+    }
+    items(notes, key = { "n_${it.id}" }) { note -> noteRow(ctx, note, level, pathLabel = null) }
+}
+
+private fun LazyListScope.searchResults(ctx: ItemContext) {
+    items(ctx.state.folders, key = { "f_${it.id}" }) { folder ->
+        folderRow(ctx, folder, level = 0, isExpanded = false, pathLabel = FolderTree.pathLabel(ctx.allFolders, folder.parentId))
+    }
+    items(ctx.state.notes, key = { "n_${it.id}" }) { note ->
+        noteRow(ctx, note, level = 0, pathLabel = FolderTree.pathLabel(ctx.allFolders, note.folderId).ifEmpty { "Top level" })
     }
 }
 
 @Composable
-fun MoveDialog(
-    folders: List<Folder>,
-    onDismiss: () -> Unit,
-    onMove: (Long?) -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Move to Folder") },
-        text = {
-            LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
-                item {
-                    ListItem(
-                        headlineContent = { Text("Root") },
-                        modifier = Modifier.clickable { onMove(null) },
-                        leadingContent = { Icon(Icons.Default.Home, contentDescription = null) }
-                    )
-                }
-                items(folders) { folder ->
-                    ListItem(
-                        headlineContent = { Text(folder.name) },
-                        modifier = Modifier.clickable { onMove(folder.id) },
-                        leadingContent = { Icon(Icons.Default.Folder, contentDescription = null) }
-                    )
-                }
-            }
+private fun folderRow(ctx: ItemContext, folder: Folder, level: Int, isExpanded: Boolean, pathLabel: String?) {
+    FolderItem(
+        folder = folder,
+        level = level,
+        isExpanded = isExpanded,
+        isSelected = folder.id in ctx.state.selectedFolders,
+        pathLabel = pathLabel,
+        onToggleExpand = {
+            if (ctx.state.isSearching) ctx.viewModel.revealFolder(folder.id) else ctx.viewModel.toggleFolder(folder.id)
         },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
+        onToggleSelection = { ctx.viewModel.toggleFolderSelection(folder.id) },
+        actions = listOf(
+            MenuAction("New note here") { ctx.openDialog(Dialog.NewNote(folder.id)) },
+            MenuAction("New subfolder") { ctx.openDialog(Dialog.NewFolder(folder.id)) },
+            MenuAction("Rename") { ctx.openDialog(Dialog.RenameFolder(folder)) },
+            MenuAction("Move") {
+                if (folder.id !in ctx.state.selectedFolders) ctx.viewModel.toggleFolderSelection(folder.id)
+                ctx.openDialog(Dialog.Move)
+            },
+            MenuAction("Delete") { ctx.viewModel.requestDeleteFolder(folder) }
+        )
     )
 }
 
-fun LazyListScope.renderTree(
-    folders: List<Folder>,
-    notes: List<Note>,
-    parentId: Long?,
-    level: Int,
-    state: FolderListState,
-    viewModel: FolderListViewModel,
-    onNoteClick: (Long) -> Unit,
-    dateFormat: SimpleDateFormat,
-    onDialogRequest: (CreateDialogType, Long?, Any?) -> Unit,
-    onUpdateFolderBounds: (Long, Rect) -> Unit,
-    onDrop: (Offset, Note?, Folder?) -> Unit,
-    onExportPdf: (Note) -> Unit
-) {
-    val currentFolders = folders.filter { it.parentId == parentId }
-    val currentNotes = notes.filter { if (parentId == null) it.folderId == 0L else it.folderId == parentId }
-
-    currentFolders.forEach { folder ->
-        val isExpanded = state.expandedFolders.contains(folder.id)
-        val isSelected = state.selectedFolders.contains(folder.id)
-
-        item(key = "f_${folder.id}") {
-            FolderItem(
-                folder = folder,
-                level = level,
-                isExpanded = isExpanded,
-                isSelected = isSelected,
-                onToggleExpand = { viewModel.toggleFolder(folder.id) },
-                onToggleSelection = { viewModel.toggleFolderSelection(folder.id) },
-                onCreateNote = { onDialogRequest(CreateDialogType.NOTE, folder.id, null) },
-                onCreateSubfolder = { onDialogRequest(CreateDialogType.FOLDER, folder.id, null) },
-                onRename = { onDialogRequest(CreateDialogType.RENAME_FOLDER, null, folder) },
-                onDelete = { viewModel.deleteFolder(folder) },
-                onUpdateBounds = { onUpdateFolderBounds(folder.id, it) },
-                onDrop = { onDrop(it, null, folder) }
-            )
-        }
-
-        if (isExpanded) {
-            renderTree(
-                folders = folders,
-                notes = notes,
-                parentId = folder.id,
-                level = level + 1,
-                state = state,
-                viewModel = viewModel,
-                onNoteClick = onNoteClick,
-                dateFormat = dateFormat,
-                onDialogRequest = onDialogRequest,
-                onUpdateFolderBounds = onUpdateFolderBounds,
-                onDrop = onDrop,
-                onExportPdf = onExportPdf
-            )
-        }
-    }
-
-    items(currentNotes, key = { "n_${it.id}" }) { note ->
-        NoteItem(
-            note = note,
-            level = level,
-            isSelected = state.selectedNotes.contains(note.id),
-            onToggleSelection = { viewModel.toggleNoteSelection(note.id) },
-            onNoteClick = { onNoteClick(note.id) },
-            dateFormat = dateFormat,
-            onRename = { onDialogRequest(CreateDialogType.RENAME_NOTE, null, note) },
-            onDelete = { viewModel.deleteNote(note) },
-            onDrop = { onDrop(it, note, null) },
-            onExportPdf = { onExportPdf(note) }
+@Composable
+private fun noteRow(ctx: ItemContext, note: NoteSummary, level: Int, pathLabel: String?) {
+    NoteItem(
+        note = note,
+        level = level,
+        isSelected = note.id in ctx.state.selectedNotes,
+        pathLabel = pathLabel,
+        dateFormat = ctx.dateFormat,
+        onToggleSelection = { ctx.viewModel.toggleNoteSelection(note.id) },
+        onNoteClick = { ctx.onNoteClick(note.id) },
+        actions = listOf(
+            MenuAction("Send as PDF") { ctx.viewModel.shareNoteAsPdf(note.id) },
+            MenuAction("Export PDF to folder") { ctx.viewModel.exportNoteToPdf(note.id) },
+            MenuAction("Rename") { ctx.openDialog(Dialog.RenameNote(note)) },
+            MenuAction("Move") {
+                if (note.id !in ctx.state.selectedNotes) ctx.viewModel.toggleNoteSelection(note.id)
+                ctx.openDialog(Dialog.Move)
+            },
+            MenuAction("Delete") { ctx.viewModel.requestDeleteNote(note) }
         )
-    }
+    )
 }
-
-@Composable
-fun FolderItem(
-    folder: Folder,
-    level: Int,
-    isExpanded: Boolean,
-    isSelected: Boolean,
-    onToggleExpand: () -> Unit,
-    onToggleSelection: () -> Unit,
-    onCreateNote: () -> Unit,
-    onCreateSubfolder: () -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
-    onUpdateBounds: (Rect) -> Unit,
-    onDrop: (Offset) -> Unit
-) {
-    var offsetY by remember { mutableFloatStateOf(0f) }
-    var itemPositionInRoot by remember { mutableStateOf(Offset.Zero) }
-    var itemSize by remember { mutableStateOf(IntSize.Zero) }
-
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .onGloballyPositioned { coords ->
-                onUpdateBounds(coords.boundsInRoot())
-                itemPositionInRoot = coords.positionInRoot()
-                itemSize = coords.size
-            }
-            .offset { IntOffset(0, offsetY.roundToInt()) }
-            .pointerInput(Unit) {
-                detectDragGesturesAfterLongPress(
-                    onDragEnd = {
-                        val center = itemPositionInRoot + Offset(itemSize.width / 2f, itemSize.height / 2f + offsetY)
-                        onDrop(center)
-                        offsetY = 0f
-                    },
-                    onDragCancel = { offsetY = 0f },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        offsetY += dragAmount.y
-                    }
-                )
-            }
-            .clickable { onToggleExpand() },
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else Color.Transparent
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(start = (level * 16 + 8).dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Checkbox(checked = isSelected, onCheckedChange = { onToggleSelection() })
-            Icon(
-                if (isExpanded) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null
-            )
-            Icon(
-                if (isExpanded) Icons.Default.FolderOpen else Icons.Default.Folder,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                folder.name,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold
-            )
-            IconButton(onClick = onCreateNote) {
-                Icon(Icons.Default.Add, contentDescription = "Add Note", modifier = Modifier.size(20.dp))
-            }
-            IconButton(onClick = onCreateSubfolder) {
-                Icon(Icons.Default.CreateNewFolder, contentDescription = "Add Subfolder", modifier = Modifier.size(20.dp))
-            }
-            IconButton(onClick = onRename) {
-                Icon(Icons.Default.Edit, contentDescription = "Rename", modifier = Modifier.size(20.dp))
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", modifier = Modifier.size(20.dp))
-            }
-        }
-    }
-}
-
-@Composable
-fun NoteItem(
-    note: Note,
-    level: Int,
-    isSelected: Boolean,
-    onToggleSelection: () -> Unit,
-    onNoteClick: () -> Unit,
-    dateFormat: SimpleDateFormat,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
-    onDrop: (Offset) -> Unit,
-    onExportPdf: () -> Unit
-) {
-    var offsetY by remember { mutableFloatStateOf(0f) }
-    var itemPositionInRoot by remember { mutableStateOf(Offset.Zero) }
-    var itemSize by remember { mutableStateOf(IntSize.Zero) }
-    
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .onGloballyPositioned { coords ->
-                itemPositionInRoot = coords.positionInRoot()
-                itemSize = coords.size
-            }
-            .offset { IntOffset(0, offsetY.roundToInt()) }
-            .pointerInput(Unit) {
-                detectDragGesturesAfterLongPress(
-                    onDragEnd = { 
-                        val center = itemPositionInRoot + Offset(itemSize.width / 2f, itemSize.height / 2f + offsetY)
-                        onDrop(center)
-                        offsetY = 0f 
-                    },
-                    onDragCancel = { offsetY = 0f },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        offsetY += dragAmount.y
-                    }
-                )
-            }
-            .clickable { onNoteClick() },
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(start = (level * 16 + 8).dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Checkbox(checked = isSelected, onCheckedChange = { onToggleSelection() })
-            Spacer(modifier = Modifier.width(24.dp))
-            Icon(
-                Icons.Default.Description,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(note.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "${(note.content.length / 1024.0).format(2)} KB",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    Text(" • ", color = MaterialTheme.colorScheme.outline)
-                    Text(
-                        dateFormat.format(Date(note.updatedAt)),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline
-                    )
-                    Text(" • ", color = MaterialTheme.colorScheme.outline)
-                    Text(
-                        note.category,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                }
-            }
-            IconButton(onClick = onRename) {
-                Icon(Icons.Default.Edit, contentDescription = "Rename", modifier = Modifier.size(20.dp))
-            }
-            IconButton(onClick = onExportPdf) {
-                Icon(Icons.Default.PictureAsPdf, contentDescription = "Export PDF", modifier = Modifier.size(20.dp))
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", modifier = Modifier.size(20.dp))
-            }
-        }
-    }
-}
-
-private fun Double.format(digits: Int) = "%.${digits}f".format(this)
-
-private fun String.toSafeFileName() = replace(Regex("[/\\\\:*?\"<>|]"), "_").trim()
