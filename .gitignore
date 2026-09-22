@@ -111,3 +111,6 @@ gradle-app.setting
 # (debug logs, etc. - usually not committed)
 
 .claude/
+# IDE and build leftovers
+.kotlin/
+app/release/
