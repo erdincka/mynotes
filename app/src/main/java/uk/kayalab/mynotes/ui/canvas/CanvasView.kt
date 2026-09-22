@@ -24,10 +24,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -44,6 +51,7 @@ import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.motionEventSpy
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -52,6 +60,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.runtime.withFrameNanos
+import androidx.input.motionprediction.MotionEventPredictor
 import uk.kayalab.mynotes.data.StylusButtonAction
 import uk.kayalab.mynotes.data.StylusConfig
 import uk.kayalab.mynotes.export.PdfRenderer
@@ -97,8 +107,33 @@ fun CanvasScreen(
     )
 }
 
-private class CachedPath(val stroke: StrokeData, val path: Path)
+private class StrokeShape(val stroke: StrokeData, val path: Path, val kind: StrokeShapes.Kind)
 
+private fun shapeFor(stroke: StrokeData): StrokeShape {
+    val sink = ComposePathSink()
+    val kind = StrokeShapes.emit(stroke, sink)
+    return StrokeShape(stroke, sink.path, kind)
+}
+
+/** Committed strokes rendered once per change into a screen-sized bitmap, so a live stroke costs one blit. */
+private class CommittedLayer {
+    var bitmap: ImageBitmap? = null
+    private var strokes: List<StrokeData>? = null
+    private var selectedIds: Set<Long>? = null
+    private var pan = Offset.Unspecified
+    private var zoom = 0f
+    private var dark = false
+
+    fun isCurrent(strokes: List<StrokeData>, selectedIds: Set<Long>, pan: Offset, zoom: Float, dark: Boolean, width: Int, height: Int): Boolean =
+        this.strokes === strokes && this.selectedIds === selectedIds && this.pan == pan && this.zoom == zoom &&
+            this.dark == dark && bitmap?.width == width && bitmap?.height == height
+
+    fun remember(strokes: List<StrokeData>, selectedIds: Set<Long>, pan: Offset, zoom: Float, dark: Boolean) {
+        this.strokes = strokes; this.selectedIds = selectedIds; this.pan = pan; this.zoom = zoom; this.dark = dark
+    }
+}
+
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun CanvasView(
     strokes: List<StrokeData>,
@@ -136,7 +171,10 @@ fun CanvasView(
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
     val textPaint = remember { android.graphics.Paint().apply { isAntiAlias = true } }
-    val pathCache = remember { HashMap<Long, CachedPath>() }
+    val shapeCache = remember { HashMap<Long, StrokeShape>() }
+    val committedLayer = remember { CommittedLayer() }
+    val predictor = remember(view) { MotionEventPredictor.newInstance(view) }
+    var predictedTail by remember { mutableStateOf<List<Offset>>(emptyList()) }
 
     // Values read inside the long-running gesture coroutine must come through state holders,
     // otherwise the coroutine keeps the values captured when pointerInput first ran.
@@ -155,7 +193,7 @@ fun CanvasView(
 
     remember(strokes) {
         val ids = strokes.mapTo(HashSet()) { it.id }
-        pathCache.keys.retainAll(ids)
+        shapeCache.keys.retainAll(ids)
     }
 
     // A barrel button pressed while the pen hovers arrives as a generic motion event, never
@@ -215,10 +253,41 @@ fun CanvasView(
         if (textPosition != null) focusRequester.requestFocus()
     }
 
+    // Once per frame while inking, ask the predictor where the pen is heading and draw that
+    // tail ahead of the real samples. It is never stored.
+    LaunchedEffect(activeTool) {
+        val tool = activeTool
+        if (tool == null || tool == CanvasTool.ERASER || tool == CanvasTool.LASSO) {
+            predictedTail = emptyList()
+            return@LaunchedEffect
+        }
+        while (true) {
+            withFrameNanos { }
+            val predicted = predictor.predict()
+            predictedTail = if (predicted == null) emptyList() else {
+                val pan = panState.value
+                val zoom = zoomState.value
+                val tail = ArrayList<Offset>(predicted.historySize + 1)
+                for (h in 0 until predicted.historySize) {
+                    tail.add((Offset(predicted.getHistoricalX(h), predicted.getHistoricalY(h)) - pan) / zoom)
+                }
+                tail.add((Offset(predicted.x, predicted.y) - pan) / zoom)
+                predicted.recycle()
+                tail
+            }
+        }
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
+                .motionEventSpy { event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP,
+                        MotionEvent.ACTION_CANCEL -> predictor.record(event)
+                    }
+                }
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         val firstDown = awaitFirstDown(requireUnconsumed = false)
@@ -295,10 +364,14 @@ fun CanvasView(
                             onEraserAction(startPos, toolWidth / 2f / zoomState.value)
                         }
 
+                        // While a pen is down, a resting palm must not count as a second pointer.
+                        val stylusDown = pointerType == PointerType.Stylus || pointerType == PointerType.Eraser
+                        fun countsAsPointer(type: PointerType) = !stylusDown || type != PointerType.Touch
+
                         var cancelled = false
                         do {
                             val event = awaitPointerEvent()
-                            if (event.changes.count { it.pressed } >= 2) {
+                            if (event.changes.count { it.pressed && countsAsPointer(it.type) } >= 2) {
                                 cancelled = true
                                 currentStrokePoints.clear()
                                 currentPressures.clear()
@@ -310,7 +383,7 @@ fun CanvasView(
                             if (change != null && change.pressed) {
                                 val pos = (change.position - panState.value) / zoomState.value
                                 currentStrokePoints.add(pos)
-                                currentPressures.add(change.pressure)
+                                currentPressures.add(StrokeOutline.smoothPressure(currentPressures.lastOrNull(), change.pressure))
                                 if (effectiveTool == CanvasTool.ERASER) {
                                     onEraserAction(pos, toolWidth / 2f / zoomState.value)
                                 }
@@ -357,21 +430,48 @@ fun CanvasView(
                             }
                         }
                         activeTool = null
+                        predictedTail = emptyList()
                         currentStrokePoints.clear()
                         currentPressures.clear()
                     }
                 }
         ) {
+            val width = size.width.roundToInt()
+            val height = size.height.roundToInt()
+            if (width > 0 && height > 0) {
+                if (!committedLayer.isCurrent(strokes, selectedIds, panOffset, zoomScale, isDarkTheme, width, height)) {
+                    val bitmap = committedLayer.bitmap?.takeIf { it.width == width && it.height == height }
+                        ?: ImageBitmap(width, height).also { committedLayer.bitmap = it }
+                    val layerCanvas = ComposeCanvas(bitmap)
+                    layerCanvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), Paint().apply { blendMode = BlendMode.Clear })
+                    CanvasDrawScope().draw(this, layoutDirection, layerCanvas, Size(width.toFloat(), height.toFloat())) {
+                        translate(left = panOffset.x, top = panOffset.y) {
+                            scale(zoomScale, pivot = Offset.Zero) {
+                                drawGrid(panOffset, zoomScale)
+                                strokes.forEach { stroke ->
+                                    if (stroke.id in selectedIds) return@forEach
+                                    val shape = shapeCache[stroke.id]?.takeIf { it.stroke === stroke }
+                                        ?: shapeFor(stroke).also { shapeCache[stroke.id] = it }
+                                    drawStroke(stroke, shape, isSelected = false, isDarkTheme, textPaint)
+                                }
+                            }
+                        }
+                    }
+                    committedLayer.remember(strokes, selectedIds, panOffset, zoomScale, isDarkTheme)
+                }
+                committedLayer.bitmap?.let { drawImage(it) }
+            }
+
             translate(left = panOffset.x, top = panOffset.y) {
                 scale(zoomScale, pivot = Offset.Zero) {
-                    drawGrid(panOffset, zoomScale)
-                    strokes.forEach { stroke ->
-                        val isSelected = stroke.id in selectedIds
-                        val path = pathCache[stroke.id]?.takeIf { it.stroke === stroke }?.path
-                            ?: buildStrokePath(stroke).also { pathCache[stroke.id] = CachedPath(stroke, it) }
-                        val offset = if (isSelected) selectionOffset else Offset.Zero
-                        translate(offset.x, offset.y) {
-                            drawStroke(stroke, path, isSelected, isDarkTheme, textPaint)
+                    if (selectedIds.isNotEmpty()) {
+                        strokes.forEach { stroke ->
+                            if (stroke.id !in selectedIds) return@forEach
+                            val shape = shapeCache[stroke.id]?.takeIf { it.stroke === stroke }
+                                ?: shapeFor(stroke).also { shapeCache[stroke.id] = it }
+                            translate(selectionOffset.x, selectionOffset.y) {
+                                drawStroke(stroke, shape, isSelected = true, isDarkTheme, textPaint)
+                            }
                         }
                     }
 
@@ -392,7 +492,15 @@ fun CanvasView(
                             else -> {
                                 val base = if (tool == CanvasTool.HIGHLIGHTER) currentColor.copy(alpha = 0.25f) else currentColor
                                 val color = if (isDarkTheme) invertColor(base) else base
-                                drawPolyline(currentStrokePoints, color, Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                                val points = if (predictedTail.isEmpty()) currentStrokePoints.toList() else currentStrokePoints + predictedTail
+                                val pressures = if (predictedTail.isEmpty()) currentPressures.toList() else {
+                                    val last = currentPressures.lastOrNull() ?: 1f
+                                    currentPressures + List(predictedTail.size) { last }
+                                }
+                                val sink = ComposePathSink()
+                                val kind = StrokeShapes.emit(points, pressures, tool.name.lowercase(), width, sink)
+                                if (kind == StrokeShapes.Kind.FILL) drawPath(sink.path, color)
+                                else drawPath(sink.path, color, style = Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round))
                             }
                         }
                     }
@@ -524,7 +632,7 @@ private fun DrawScope.drawGrid(pan: Offset, zoom: Float) {
 
 private fun DrawScope.drawStroke(
     stroke: StrokeData,
-    path: Path,
+    shape: StrokeShape,
     isSelected: Boolean,
     isDarkTheme: Boolean,
     textPaint: android.graphics.Paint
@@ -548,35 +656,14 @@ private fun DrawScope.drawStroke(
     if (stroke.points.isEmpty()) return
 
     if (isSelected) {
-        drawPath(path, Color.Blue.copy(alpha = 0.2f), style = Stroke(width = stroke.strokeWidth + 10f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        drawPath(shape.path, Color.Blue.copy(alpha = 0.2f), style = Stroke(width = stroke.strokeWidth + 10f, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
-    val width = if (isSelected) stroke.strokeWidth + 2f else stroke.strokeWidth
-    drawPath(path, color, style = Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round))
-}
-
-private fun buildStrokePath(stroke: StrokeData): Path {
-    val points = stroke.points
-    val path = Path()
-    if (points.isEmpty()) return path
-    path.moveTo(points[0].x, points[0].y)
-    val smooth = stroke.tool in setOf("pen", "brush", "highlighter") && points.size >= 3
-    if (!smooth) {
-        for (i in 1 until points.size) path.lineTo(points[i].x, points[i].y)
-        return path
+    if (shape.kind == StrokeShapes.Kind.FILL) {
+        drawPath(shape.path, color)
+    } else {
+        val width = if (isSelected) stroke.strokeWidth + 2f else stroke.strokeWidth
+        drawPath(shape.path, color, style = Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
-    // Catmull-Rom spline through the points, expressed as cubic Béziers.
-    for (i in 0 until points.size - 1) {
-        val p0 = points[if (i > 0) i - 1 else 0]
-        val p1 = points[i]
-        val p2 = points[i + 1]
-        val p3 = points[if (i + 2 < points.size) i + 2 else points.size - 1]
-        path.cubicTo(
-            p1.x + (p2.x - p0.x) / 6f, p1.y + (p2.y - p0.y) / 6f,
-            p2.x - (p3.x - p1.x) / 6f, p2.y - (p3.y - p1.y) / 6f,
-            p2.x, p2.y
-        )
-    }
-    return path
 }
 
 private fun DrawScope.drawPolyline(points: List<Offset>, color: Color, style: Stroke) {

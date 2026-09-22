@@ -86,6 +86,9 @@ dependencies {
     // DocumentFile (SAF helper)
     implementation(libs.androidx.documentfile)
 
+    // Stylus motion prediction
+    implementation(libs.androidx.input.motionprediction)
+
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

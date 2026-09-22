@@ -3,12 +3,13 @@ package uk.kayalab.mynotes.export
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import androidx.compose.ui.geometry.Offset
+import uk.kayalab.mynotes.ui.canvas.AndroidPathSink
 import uk.kayalab.mynotes.ui.canvas.StrokeData
 import uk.kayalab.mynotes.ui.canvas.StrokeGeometry
+import uk.kayalab.mynotes.ui.canvas.StrokeShapes
 import java.io.OutputStream
 
 /** Renders strokes to a multi-page A4 PDF. Every stroke is drawn on every page; the page clips. */
@@ -55,38 +56,21 @@ object PdfRenderer {
             )
             return
         }
+        val sink = AndroidPathSink(transform = { Offset(layout.pageX(it.x), layout.pageY(it.y, pageIndex)) })
+        val kind = StrokeShapes.emit(stroke, sink)
         val paint = Paint().apply {
             color = parseColor(stroke.color)
-            strokeWidth = stroke.strokeWidth * layout.scale
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
             isAntiAlias = true
-        }
-        canvas.drawPath(buildPath(stroke.points, layout, pageIndex), paint)
-    }
-
-    private fun buildPath(points: List<Offset>, layout: PdfLayout, pageIndex: Int): Path {
-        fun px(x: Float) = layout.pageX(x)
-        fun py(y: Float) = layout.pageY(y, pageIndex)
-        val path = Path()
-        path.moveTo(px(points[0].x), py(points[0].y))
-        if (points.size >= 3) {
-            for (i in 0 until points.size - 1) {
-                val p0 = points[if (i > 0) i - 1 else 0]
-                val p1 = points[i]
-                val p2 = points[i + 1]
-                val p3 = points[if (i + 2 < points.size) i + 2 else points.size - 1]
-                path.cubicTo(
-                    px(p1.x + (p2.x - p0.x) / 6f), py(p1.y + (p2.y - p0.y) / 6f),
-                    px(p2.x - (p3.x - p1.x) / 6f), py(p2.y - (p3.y - p1.y) / 6f),
-                    px(p2.x), py(p2.y)
-                )
+            if (kind == StrokeShapes.Kind.FILL) {
+                style = Paint.Style.FILL
+            } else {
+                style = Paint.Style.STROKE
+                strokeWidth = stroke.strokeWidth * layout.scale
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
             }
-        } else {
-            for (i in 1 until points.size) path.lineTo(px(points[i].x), py(points[i].y))
         }
-        return path
+        canvas.drawPath(sink.path, paint)
     }
 
     fun typefaceFor(family: String): Typeface = when (family) {

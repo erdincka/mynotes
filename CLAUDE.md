@@ -57,7 +57,9 @@ app/src/main/java/uk/kayalab/mynotes/
     └── canvas/
         ├── StrokeData.kt         # StrokeData, CanvasTool, StrokeCodec (the only JSON entry point)
         ├── StrokeGeometry.kt     # Pure erase / lasso / move / bounds (unit tested)
-        ├── CanvasView.kt         # Pointer input, stylus buttons, pan/zoom, cached path drawing
+        ├── StrokeOutline.kt      # Pure pressure → variable-width outline polygon (unit tested)
+        ├── StrokeShapes.kt       # Emits a stroke into Compose or Android paths (fill or centreline)
+        ├── CanvasView.kt         # Pointer input, stylus buttons, pan/zoom, committed-stroke bitmap layer
         ├── CanvasToolbar.kt
         └── fluentui-system-icons_*.kt
 ```
@@ -90,11 +92,24 @@ Press-triggered actions (Undo) come through a `View.OnGenericMotionListener`, be
 presses while hovering never reach Compose pointer input. Pens that report `PointerType.Eraser`
 always erase.
 
-### Canvas coordinate system
-Strokes are stored in content space. Screen → content: `(touch - pan) / zoom`. Built `Path`s are
-cached per stroke id and reused while the `StrokeData` instance is identical, so a frame only
-rebuilds paths for strokes that changed. Font sizes are content pixels, the same on screen and in
-the PDF.
+### Canvas coordinate system and rendering
+Strokes are stored in content space. Screen → content: `(touch - pan) / zoom`. Shapes are cached
+per stroke id while the `StrokeData` instance is identical. Committed, unselected strokes are
+rendered once into a screen-sized `ImageBitmap` (`CommittedLayer`) whenever strokes, selection,
+pan, zoom, theme or size change; a frame during inking is one blit plus the live stroke. Selected
+strokes, the live stroke and the lasso draw on top. Font sizes are content pixels, the same on
+screen and in the PDF.
+
+### Pressure and prediction
+Pen and brush strokes whose recorded pressures vary become filled outline polygons built by
+`StrokeOutline` (Catmull-Rom resample, per-point width, round caps, filler circles on sharp
+turns, all wound the same way so non-zero fill unions them). Strokes without pressure variation,
+highlighter and lasso stay stroked centrelines, so finger input and old notes look as before.
+`StrokeShapes.emit` is the single place that decides fill versus stroke; the PDF uses it too.
+Pressure is smoothed at capture time. `MotionEventPredictor` is fed through `motionEventSpy`; once
+per frame while inking the predicted points are drawn as a tail that is never stored. While a
+stylus is down, touch pointers are ignored for the two-finger pan/zoom check so a resting palm
+cannot cancel a stroke.
 
 ### PDF export
 `PdfLayout.compute(bounds, referenceWidth)` fits content to the A4 width but never enlarges it
@@ -122,7 +137,8 @@ old `isSynced` columns.
 
 ## Roadmap
 
-Phase 2 (canvas feel): pressure-sensitive width, motion prediction, stylus-only tuning, possibly
-Jetpack Ink. Phase 3 (storage): UUID ids, one file per note. Phase 4 (UI polish): long-press
-selection, page templates, thumbnails. Extras on request: handwriting recognition, images, PDF
+Phase 2 (canvas feel) is done: pressure width, bitmap layer, prediction, palm handling. Jetpack
+Ink stays an option if latency is still visible. Phase 3 (storage): UUID ids, one file per note.
+Phase 4 (UI polish): single-row toolbar with colour/width popover (portrait squeezes the colour
+row), long-press selection, page templates, thumbnails. Extras on request: handwriting recognition, images, PDF
 annotation, shapes.
