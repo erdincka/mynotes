@@ -212,10 +212,11 @@ fun CanvasToolbar(
                             modifier = Modifier.size(20.dp), 
                             tint = MaterialTheme.colorScheme.secondary
                         )
+                        val widthRange = if (currentTool == CanvasTool.ERASER) 10f..240f else 1f..50f
                         Slider(
-                            value = currentStrokeWidth,
+                            value = currentStrokeWidth.coerceIn(widthRange),
                             onValueChange = onStrokeWidthChanged,
-                            valueRange = 1f..50f,
+                            valueRange = widthRange,
                             modifier = Modifier.weight(1f).padding(start = 8.dp)
                         )
                     }

@@ -175,6 +175,9 @@ fun CanvasView(
     val committedLayer = remember { CommittedLayer() }
     val predictor = remember(view) { MotionEventPredictor.newInstance(view) }
     var predictedTail by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    // Spied MotionEvents are in the root view's space, not this canvas's, so predictions are used
+    // only as a displacement from the last recorded sample and applied to the last real point.
+    var lastRecordedScreenPos by remember { mutableStateOf<Offset?>(null) }
 
     // Values read inside the long-running gesture coroutine must come through state holders,
     // otherwise the coroutine keeps the values captured when pointerInput first ran.
@@ -264,16 +267,18 @@ fun CanvasView(
         while (true) {
             withFrameNanos { }
             val predicted = predictor.predict()
-            predictedTail = if (predicted == null) emptyList() else {
-                val pan = panState.value
+            val anchorScreen = lastRecordedScreenPos
+            val anchorContent = currentStrokePoints.lastOrNull()
+            predictedTail = if (predicted == null || anchorScreen == null || anchorContent == null) emptyList() else {
                 val zoom = zoomState.value
                 val tail = ArrayList<Offset>(predicted.historySize + 1)
                 for (h in 0 until predicted.historySize) {
-                    tail.add((Offset(predicted.getHistoricalX(h), predicted.getHistoricalY(h)) - pan) / zoom)
+                    val delta = Offset(predicted.getHistoricalX(h), predicted.getHistoricalY(h)) - anchorScreen
+                    tail.add(anchorContent + delta / zoom)
                 }
-                tail.add((Offset(predicted.x, predicted.y) - pan) / zoom)
+                tail.add(anchorContent + (Offset(predicted.x, predicted.y) - anchorScreen) / zoom)
                 predicted.recycle()
-                tail
+                tail.filter { (it - anchorContent).getDistance() > 0.5f }
             }
         }
     }
@@ -284,8 +289,14 @@ fun CanvasView(
                 .fillMaxSize()
                 .motionEventSpy { event ->
                     when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP,
-                        MotionEvent.ACTION_CANCEL -> predictor.record(event)
+                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                            predictor.record(event)
+                            lastRecordedScreenPos = Offset(event.x, event.y)
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            predictor.record(event)
+                            lastRecordedScreenPos = null
+                        }
                     }
                 }
                 .pointerInput(Unit) {
