@@ -8,10 +8,11 @@ class NoteSummary(
     val createdAt: Long,
     val updatedAt: Long,
     val strokeCount: Int,
-    val thumbnail: ByteArray?
+    val thumbnail: ByteArray?,
+    val recognizedText: String = ""
 ) {
     override fun equals(other: Any?): Boolean =
         other is NoteSummary && other.id == id && other.name == name && other.folderId == folderId &&
-            other.updatedAt == updatedAt && other.strokeCount == strokeCount
+            other.updatedAt == updatedAt && other.strokeCount == strokeCount && other.recognizedText == recognizedText
     override fun hashCode(): Int = id.hashCode()
 }

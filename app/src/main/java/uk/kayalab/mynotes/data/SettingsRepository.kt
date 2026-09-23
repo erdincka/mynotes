@@ -26,6 +26,7 @@ class SettingsRepository @Inject constructor(
     private val stylusSecondaryKey = stringPreferencesKey("stylus_secondary_action")
     private val stylusOnlyKey = booleanPreferencesKey("stylus_only")
     private val defaultTemplateKey = stringPreferencesKey("default_template")
+    private val handwritingSearchKey = booleanPreferencesKey("handwriting_search")
 
     val isDarkTheme: Flow<Boolean?> = context.dataStore.data.map { it[darkThemeKey] }
 
@@ -33,6 +34,8 @@ class SettingsRepository @Inject constructor(
         context.dataStore.data.map { it[defaultFontFamilyKey] ?: "Default" }
 
     val exportFolderUri: Flow<String?> = context.dataStore.data.map { it[exportFolderUriKey] }
+
+    val handwritingSearch: Flow<Boolean> = context.dataStore.data.map { it[handwritingSearchKey] ?: false }
 
     val defaultTemplate: Flow<PageTemplate> =
         context.dataStore.data.map { PageTemplate.fromName(it[defaultTemplateKey]) }
@@ -68,6 +71,10 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setStylusSecondaryAction(action: StylusButtonAction) {
         context.dataStore.edit { it[stylusSecondaryKey] = action.name }
+    }
+
+    suspend fun setHandwritingSearch(enabled: Boolean) {
+        context.dataStore.edit { it[handwritingSearchKey] = enabled }
     }
 
     suspend fun setDefaultTemplate(template: PageTemplate) {

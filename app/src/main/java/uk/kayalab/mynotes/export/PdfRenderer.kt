@@ -1,6 +1,8 @@
 package uk.kayalab.mynotes.export
 
+import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.RectF
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -16,7 +18,7 @@ import java.io.OutputStream
 /** Renders strokes to a multi-page A4 PDF. Every stroke is drawn on every page; the page clips. */
 object PdfRenderer {
 
-    fun render(strokes: List<StrokeData>, referenceWidth: Float, output: OutputStream, template: PageTemplate = PageTemplate.PLAIN) {
+    fun render(strokes: List<StrokeData>, referenceWidth: Float, output: OutputStream, template: PageTemplate = PageTemplate.PLAIN, images: (String) -> Bitmap? = { null }) {
         val document = PdfDocument()
         try {
             val bounds = StrokeGeometry.boundingBox(strokes)
@@ -29,7 +31,7 @@ object PdfRenderer {
                 for (pageIndex in 0 until layout.pageCount) {
                     val page = document.startPage(pageInfo(pageIndex + 1))
                     drawTemplate(page.canvas, template, spacingScale = layout.scale)
-                    strokes.forEach { drawStroke(page.canvas, it, layout, pageIndex) }
+                    strokes.forEach { drawStroke(page.canvas, it, layout, pageIndex, images) }
                     document.finishPage(page)
                 }
             }
@@ -77,8 +79,16 @@ object PdfRenderer {
     private fun pageInfo(number: Int) =
         PdfDocument.PageInfo.Builder(PdfLayout.PAGE_WIDTH, PdfLayout.PAGE_HEIGHT, number).create()
 
-    private fun drawStroke(canvas: Canvas, stroke: StrokeData, layout: PdfLayout, pageIndex: Int) {
+    private fun drawStroke(canvas: Canvas, stroke: StrokeData, layout: PdfLayout, pageIndex: Int, images: (String) -> Bitmap?) {
         if (stroke.points.isEmpty()) return
+        if (stroke.isImage) {
+            val bitmap = images(stroke.imageName!!) ?: return
+            val left = layout.pageX(stroke.points[0].x)
+            val top = layout.pageY(stroke.points[0].y, pageIndex)
+            val dst = RectF(left, top, left + stroke.imageWidth * layout.scale, top + stroke.imageHeight * layout.scale)
+            canvas.drawBitmap(bitmap, null, dst, Paint(Paint.FILTER_BITMAP_FLAG))
+            return
+        }
         if (stroke.tool == "text" && stroke.text != null) {
             val paint = Paint().apply {
                 color = parseColor(stroke.color)

@@ -1,7 +1,27 @@
 package uk.kayalab.mynotes.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.unit.dp
+import uk.kayalab.mynotes.ui.canvas.CanvasViewport
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
@@ -26,12 +46,14 @@ import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.ui.canvas.CanvasScreen
 import uk.kayalab.mynotes.ui.canvas.CanvasTool
 import uk.kayalab.mynotes.ui.canvas.CanvasToolbar
+import uk.kayalab.mynotes.ui.canvas.ShapeKind
 
 private val defaultToolWidths = mapOf(
     CanvasTool.PEN to 5f,
     CanvasTool.BRUSH to 8f,
     CanvasTool.ERASER to 60f,
     CanvasTool.HIGHLIGHTER to 25f,
+    CanvasTool.SHAPE to 5f,
     CanvasTool.LASSO to 1f,
     CanvasTool.TEXT to 1f
 )
@@ -55,6 +77,19 @@ fun NoteScreen(
     val toolWidths = remember { mutableStateMapOf<CanvasTool, Float>().apply { putAll(defaultToolWidths) } }
     var currentFontSize by remember { mutableStateOf(40f) }
     var currentFontFamily by remember { mutableStateOf("Default") }
+    var currentShape by remember { mutableStateOf(ShapeKind.RECTANGLE) }
+    val viewport = remember { CanvasViewport() }
+    val context = LocalContext.current
+    val recognizedText by viewModel.recognizedText.collectAsState()
+    val isRecognizing by viewModel.isRecognizing.collectAsState()
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            val maxWidth = viewport.visibleWidth * 0.6f
+            val centre = viewport.visibleCentre
+            viewModel.insertImage(uri, topLeft = centre - androidx.compose.ui.geometry.Offset(maxWidth / 2f, maxWidth / 3f), maxWidth = maxWidth)
+        }
+    }
 
     LaunchedEffect(defaultFontFamily) {
         if (currentFontFamily == "Default") currentFontFamily = defaultFontFamily
@@ -88,7 +123,34 @@ fun NoteScreen(
     }
     BackHandler(onBack = handleBack)
 
-    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { padding ->
+    if (isRecognizing) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text("Reading handwriting") },
+            text = { Box(modifier = Modifier.fillMaxSize().heightIn(max = 48.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() } },
+            confirmButton = {}
+        )
+    }
+    recognizedText?.let { text ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissRecognizedText,
+            title = { Text("Recognised text") },
+            text = {
+                Text(text, modifier = Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()))
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("MyNotes", text))
+                    viewModel.dismissRecognizedText()
+                }) { Text("Copy") }
+            },
+            dismissButton = { TextButton(onClick = viewModel::dismissRecognizedText) { Text("Close") } }
+        )
+    }
+
+    // The canvas runs edge to edge; only the toolbar pads for the status bar, so it sits flush at the top.
+    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }, contentWindowInsets = WindowInsets(0, 0, 0, 0)) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
             CanvasScreen(
                 viewModel = viewModel,
@@ -99,6 +161,8 @@ fun NoteScreen(
                 currentFontFamily = currentFontFamily,
                 stylusConfig = stylusConfig,
                 template = template,
+                currentShape = currentShape,
+                viewport = viewport,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -114,12 +178,16 @@ fun NoteScreen(
                 onBack = handleBack,
                 onShare = { viewModel.sharePdf() },
                 onExport = { viewModel.exportPdf() },
+                onInsertImage = { imagePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onCopyText = { viewModel.recognizeNow() },
                 currentFontSize = currentFontSize,
                 onFontSizeChanged = { currentFontSize = it },
                 currentFontFamily = currentFontFamily,
                 onFontFamilyChanged = { currentFontFamily = it },
                 template = template,
                 onTemplateSelected = viewModel::setTemplate,
+                currentShape = currentShape,
+                onShapeSelected = { currentShape = it },
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }

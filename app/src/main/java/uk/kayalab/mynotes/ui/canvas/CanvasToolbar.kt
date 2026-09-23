@@ -6,8 +6,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -61,11 +66,15 @@ fun CanvasToolbar(
     onFontFamilyChanged: (String) -> Unit,
     template: PageTemplate,
     onTemplateSelected: (PageTemplate) -> Unit,
+    currentShape: ShapeKind,
+    onShapeSelected: (ShapeKind) -> Unit,
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onBack: () -> Unit,
     onShare: () -> Unit,
     onExport: () -> Unit,
+    onInsertImage: () -> Unit,
+    onCopyText: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val isDark = LocalIsDarkTheme.current
@@ -80,7 +89,10 @@ fun CanvasToolbar(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp).fillMaxWidth()
+            modifier = Modifier
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .padding(horizontal = 4.dp, vertical = 2.dp)
+                .fillMaxWidth()
         ) {
             ToolbarIconButton(FluentIcons.Back, "Back", onClick = onBack)
             ToolbarIconButton(FluentIcons.Undo, "Undo", onClick = onUndo)
@@ -97,6 +109,12 @@ fun CanvasToolbar(
                         CanvasTool.HIGHLIGHTER -> FluentIcons.Highlighter
                         CanvasTool.LASSO -> FluentIcons.Lasso
                         CanvasTool.TEXT -> FluentIcons.Text
+                        CanvasTool.SHAPE -> when (currentShape) {
+                            ShapeKind.LINE -> FluentIcons.Line
+                            ShapeKind.ARROW -> FluentIcons.Arrow
+                            ShapeKind.RECTANGLE -> FluentIcons.Rectangle
+                            ShapeKind.ELLIPSE -> FluentIcons.Ellipse
+                        }
                     }
                     ToolbarIconButton(
                         icon = icon,
@@ -129,6 +147,8 @@ fun CanvasToolbar(
                         onFontSizeChanged = onFontSizeChanged,
                         currentFontFamily = currentFontFamily,
                         onFontFamilyChanged = onFontFamilyChanged,
+                        currentShape = currentShape,
+                        onShapeSelected = onShapeSelected,
                         isDark = isDark
                     )
                 }
@@ -137,6 +157,8 @@ fun CanvasToolbar(
             Box {
                 ToolbarIconButton(FluentIcons.More, "More", onClick = { showMenu = true })
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                    DropdownMenuItem(text = { Text("Insert image") }, leadingIcon = { Icon(FluentIcons.Image, contentDescription = null, modifier = Modifier.size(20.dp)) }, onClick = { showMenu = false; onInsertImage() })
+                    DropdownMenuItem(text = { Text("Copy text") }, leadingIcon = { Icon(FluentIcons.Text, contentDescription = null, modifier = Modifier.size(20.dp)) }, onClick = { showMenu = false; onCopyText() })
                     DropdownMenuItem(text = { Text("Send as PDF") }, onClick = { showMenu = false; onShare() })
                     DropdownMenuItem(text = { Text("Export PDF to folder") }, onClick = { showMenu = false; onExport() })
                     Text(
@@ -200,6 +222,7 @@ private fun StyleButton(color: Color, width: Float, tool: CanvasTool, onClick: (
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StylePopover(
     tool: CanvasTool,
@@ -211,9 +234,19 @@ private fun StylePopover(
     onFontSizeChanged: (Float) -> Unit,
     currentFontFamily: String,
     onFontFamilyChanged: (String) -> Unit,
+    currentShape: ShapeKind,
+    onShapeSelected: (ShapeKind) -> Unit,
     isDark: Boolean
 ) {
     Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).width(300.dp)) {
+        if (tool == CanvasTool.SHAPE) {
+            Text("Shape", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 8.dp)) {
+                ShapeKind.entries.forEach { kind ->
+                    FilterChip(selected = kind == currentShape, onClick = { onShapeSelected(kind) }, label = { Text(kind.label) })
+                }
+            }
+        }
         if (tool != CanvasTool.ERASER) {
             Text("Colour", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(modifier = Modifier.height(6.dp))
@@ -239,7 +272,7 @@ private fun StylePopover(
         }
         if (tool == CanvasTool.TEXT) {
             Text("Font", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 fontChoices.forEach { font ->
                     FilterChip(selected = font == currentFontFamily, onClick = { onFontFamilyChanged(font) }, label = { Text(font) })
                 }

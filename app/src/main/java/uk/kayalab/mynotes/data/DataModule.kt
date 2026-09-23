@@ -17,7 +17,7 @@ object DataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MyNotesDatabase =
         Room.databaseBuilder(context, MyNotesDatabase::class.java, MyNotesDatabase.DATABASE_NAME)
-            .addMigrations(MyNotesDatabase.MIGRATION_1_2, MyNotesDatabase.MIGRATION_2_3, MyNotesDatabase.MIGRATION_3_4, MyNotesDatabase.MIGRATION_4_5)
+            .addMigrations(MyNotesDatabase.MIGRATION_1_2, MyNotesDatabase.MIGRATION_2_3, MyNotesDatabase.MIGRATION_3_4, MyNotesDatabase.MIGRATION_4_5, MyNotesDatabase.MIGRATION_5_6)
             .build()
 
     @Provides

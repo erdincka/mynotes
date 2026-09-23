@@ -47,9 +47,17 @@ object StrokeGeometry {
                 val bottom = stroke.points[0].y + stroke.fontSize
                 if (bottom > maxY) maxY = bottom
             }
+            if (stroke.isImage) {
+                val rect = imageRect(stroke)
+                if (rect.right > maxX) maxX = rect.right
+                if (rect.bottom > maxY) maxY = rect.bottom
+            }
         }
         return if (any) Rect(minX, minY, maxX, maxY) else null
     }
+
+    fun imageRect(stroke: StrokeData): Rect =
+        Rect(stroke.points[0].x, stroke.points[0].y, stroke.points[0].x + stroke.imageWidth, stroke.points[0].y + stroke.imageHeight)
 
     /**
      * Removes every point within [radius] of [point], splitting strokes around the gap.
@@ -59,6 +67,10 @@ object StrokeGeometry {
         var changed = false
         val result = ArrayList<StrokeData>(strokes.size)
         for (stroke in strokes) {
+            if (stroke.isImage) {
+                if (imageRect(stroke).contains(point)) changed = true else result.add(stroke)
+                continue
+            }
             if (stroke.tool == "text") {
                 if (stroke.points.isNotEmpty() && (stroke.points[0] - point).getDistance() <= radius + stroke.fontSize / 2) {
                     changed = true
@@ -109,6 +121,11 @@ object StrokeGeometry {
         val selected = LinkedHashSet<Long>()
         var split = false
         for (stroke in strokes) {
+            if (stroke.isImage) {
+                result.add(stroke)
+                if (pointInPolygon(imageRect(stroke).center, polygon)) selected.add(stroke.id)
+                continue
+            }
             val inside = ArrayList<MutableList<Int>>()
             val outside = ArrayList<MutableList<Int>>()
             var segment = ArrayList<Int>()

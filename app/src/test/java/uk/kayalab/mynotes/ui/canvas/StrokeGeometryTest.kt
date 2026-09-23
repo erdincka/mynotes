@@ -48,6 +48,24 @@ class StrokeGeometryTest {
         assertNull(StrokeGeometry.erase(listOf(text), Offset(400f, 400f), radius = 5f))
     }
 
+    private val image = StrokeData(id = 77, points = listOf(Offset(20f, 20f)), tool = "image", imageName = "a.jpg", imageWidth = 40f, imageHeight = 30f)
+
+    @Test
+    fun imagesEraseOnlyWhenTheEraserIsInsideThem() {
+        assertNull(StrokeGeometry.erase(listOf(image), Offset(10f, 10f), radius = 5f))
+        assertTrue(StrokeGeometry.erase(listOf(image), Offset(30f, 30f), radius = 5f)!!.isEmpty())
+    }
+
+    @Test
+    fun imagesSelectByCentreAndExtendTheBoundingBox() {
+        val result = StrokeGeometry.lassoSelect(listOf(image), square)
+        assertEquals(setOf(77L), result.selectedIds)
+        assertEquals(listOf(image), result.strokes)
+        val box = StrokeGeometry.boundingBox(listOf(image))!!
+        assertEquals(60f, box.right, 0f)
+        assertEquals(50f, box.bottom, 0f)
+    }
+
     @Test
     fun lassoKeepsIdsOfStrokesWhollyInsideOrOutside() {
         val inside = StrokeData(id = 1, points = listOf(Offset(10f, 10f), Offset(20f, 20f)))

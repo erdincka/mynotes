@@ -16,7 +16,12 @@ import uk.kayalab.mynotes.data.Note
 import uk.kayalab.mynotes.data.NoteRepository
 import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.data.SettingsRepository
+import android.net.Uri
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import uk.kayalab.mynotes.export.ImageStore
 import uk.kayalab.mynotes.export.PdfExportService
+import uk.kayalab.mynotes.recognition.HandwritingRecognizer
 import uk.kayalab.mynotes.ui.canvas.StrokeData
 import uk.kayalab.mynotes.ui.canvas.StrokeGeometry
 import javax.inject.Inject
@@ -34,8 +39,53 @@ class NoteViewModel @Inject constructor(
     private val noteRepository: NoteRepository,
     private val settingsRepository: SettingsRepository,
     private val noteSaver: NoteSaver,
-    private val pdfExportService: PdfExportService
+    private val pdfExportService: PdfExportService,
+    private val imageStore: ImageStore,
+    private val recognizer: HandwritingRecognizer
 ) : ViewModel() {
+
+    private val _recognizedText = MutableStateFlow<String?>(null)
+    /** Text to show in the "Copy text" dialog; null when the dialog is closed. */
+    val recognizedText: StateFlow<String?> = _recognizedText.asStateFlow()
+
+    private val _isRecognizing = MutableStateFlow(false)
+    val isRecognizing: StateFlow<Boolean> = _isRecognizing.asStateFlow()
+
+    fun imageBitmap(name: String): ImageBitmap? = imageStore.bitmap(name)?.asImageBitmap()
+
+    /** Imports the picked image and places it with its top-left at [topLeft], scaled to [maxWidth] content px. */
+    fun insertImage(uri: Uri, topLeft: Offset, maxWidth: Float) {
+        viewModelScope.launch {
+            imageStore.import(uri)
+                .onSuccess { imported ->
+                    val scale = minOf(1f, maxWidth / imported.width)
+                    addStroke(
+                        StrokeData(
+                            points = listOf(topLeft),
+                            tool = "image",
+                            imageName = imported.name,
+                            imageWidth = imported.width * scale,
+                            imageHeight = imported.height * scale
+                        )
+                    )
+                }
+                .onFailure { _message.value = "Could not insert the image: ${it.message}" }
+        }
+    }
+
+    fun recognizeNow() {
+        viewModelScope.launch {
+            _isRecognizing.value = true
+            recognizer.recognize(_strokes.value)
+                .onSuccess { _recognizedText.value = it.ifBlank { "Nothing recognised on this page." } }
+                .onFailure { _message.value = it.message ?: "Recognition failed." }
+            _isRecognizing.value = false
+        }
+    }
+
+    fun dismissRecognizedText() {
+        _recognizedText.value = null
+    }
 
     private val _note = MutableStateFlow<Note?>(null)
     val note: StateFlow<Note?> = _note.asStateFlow()
@@ -77,6 +127,7 @@ class NoteViewModel @Inject constructor(
                     return@onSuccess
                 }
                 val (note, strokes) = loaded
+                imageStore.preload(strokes.mapNotNull { it.imageName })
                 _note.value = note
                 _strokes.value = strokes
                 noteSaver.prime(noteId, strokes)

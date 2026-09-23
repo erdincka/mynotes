@@ -60,6 +60,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.runtime.withFrameNanos
 import androidx.input.motionprediction.MotionEventPredictor
 import uk.kayalab.mynotes.data.PageTemplate
@@ -82,6 +83,8 @@ fun CanvasScreen(
     currentFontFamily: String,
     stylusConfig: StylusConfig,
     template: PageTemplate,
+    currentShape: ShapeKind,
+    viewport: CanvasViewport,
     modifier: Modifier = Modifier,
 ) {
     val strokes by viewModel.strokes.collectAsState()
@@ -106,11 +109,28 @@ fun CanvasScreen(
         currentFontFamily = currentFontFamily,
         stylusConfig = stylusConfig,
         template = template,
+        currentShape = currentShape,
+        viewport = viewport,
+        imageProvider = viewModel::imageBitmap,
         modifier = modifier
     )
 }
 
 private class StrokeShape(val stroke: StrokeData, val path: Path, val kind: StrokeShapes.Kind)
+
+/** What the canvas currently shows, so the screen can place inserted content in view. */
+class CanvasViewport {
+    var pan: Offset = Offset.Zero
+        internal set
+    var zoom: Float = 1f
+        internal set
+    var size: Size = Size.Zero
+        internal set
+
+    fun toContent(screen: Offset): Offset = (screen - pan) / zoom
+    val visibleCentre: Offset get() = toContent(Offset(size.width / 2f, size.height / 2f))
+    val visibleWidth: Float get() = if (zoom > 0f) size.width / zoom else size.width
+}
 
 private fun shapeFor(stroke: StrokeData): StrokeShape {
     val sink = ComposePathSink()
@@ -157,6 +177,9 @@ fun CanvasView(
     currentFontFamily: String,
     stylusConfig: StylusConfig,
     template: PageTemplate,
+    currentShape: ShapeKind,
+    viewport: CanvasViewport,
+    imageProvider: (String) -> ImageBitmap?,
     modifier: Modifier = Modifier,
 ) {
     var panX by rememberSaveable { mutableFloatStateOf(0f) }
@@ -195,6 +218,7 @@ fun CanvasView(
     val fontSizeState = rememberUpdatedState(currentFontSize)
     val fontFamilyState = rememberUpdatedState(currentFontFamily)
     val stylusState = rememberUpdatedState(stylusConfig)
+    val shapeState = rememberUpdatedState(currentShape)
     val undoState = rememberUpdatedState(onUndo)
     val panState = rememberUpdatedState(panOffset)
     val zoomState = rememberUpdatedState(zoomScale)
@@ -265,7 +289,7 @@ fun CanvasView(
     // tail ahead of the real samples. It is never stored.
     LaunchedEffect(activeTool) {
         val tool = activeTool
-        if (tool == null || tool == CanvasTool.ERASER || tool == CanvasTool.LASSO) {
+        if (tool == null || tool == CanvasTool.ERASER || tool == CanvasTool.LASSO || tool == CanvasTool.SHAPE) {
             predictedTail = emptyList()
             return@LaunchedEffect
         }
@@ -424,6 +448,14 @@ fun CanvasView(
                                     }
                                 }
                                 CanvasTool.ERASER -> Unit
+                                CanvasTool.SHAPE -> onStrokeAdded(
+                                    StrokeData(
+                                        points = ShapeGeometry.points(shapeState.value, currentStrokePoints.first(), currentStrokePoints.last(), toolWidth),
+                                        color = "#%08X".format(colorState.value.toArgb()),
+                                        strokeWidth = toolWidth,
+                                        tool = "shape"
+                                    )
+                                )
                                 else -> {
                                     val argb = colorState.value.toArgb()
                                     val colorHex = if (effectiveTool == CanvasTool.HIGHLIGHTER) {
@@ -452,6 +484,9 @@ fun CanvasView(
                     }
                 }
         ) {
+            viewport.pan = panOffset
+            viewport.zoom = zoomScale
+            viewport.size = size
             val width = size.width.roundToInt()
             val height = size.height.roundToInt()
             if (width > 0 && height > 0) {
@@ -468,7 +503,7 @@ fun CanvasView(
                                     if (stroke.id in selectedIds) return@forEach
                                     val shape = shapeCache[stroke.id]?.takeIf { it.stroke === stroke }
                                         ?: shapeFor(stroke).also { shapeCache[stroke.id] = it }
-                                    drawStroke(stroke, shape, isSelected = false, isDarkTheme, textPaint)
+                                    drawStroke(stroke, shape, isSelected = false, isDarkTheme, textPaint, imageProvider)
                                 }
                             }
                         }
@@ -486,7 +521,7 @@ fun CanvasView(
                             val shape = shapeCache[stroke.id]?.takeIf { it.stroke === stroke }
                                 ?: shapeFor(stroke).also { shapeCache[stroke.id] = it }
                             translate(selectionOffset.x, selectionOffset.y) {
-                                drawStroke(stroke, shape, isSelected = true, isDarkTheme, textPaint)
+                                drawStroke(stroke, shape, isSelected = true, isDarkTheme, textPaint, imageProvider)
                             }
                         }
                     }
@@ -504,6 +539,11 @@ fun CanvasView(
                                 currentStrokePoints,
                                 Color.Blue.copy(alpha = 0.6f),
                                 Stroke(width = 1f / zoomScale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f))
+                            )
+                            CanvasTool.SHAPE -> drawPolyline(
+                                ShapeGeometry.points(currentShape, currentStrokePoints.first(), currentStrokePoints.last(), width),
+                                if (isDarkTheme) invertColor(currentColor) else currentColor,
+                                Stroke(width = width, cap = StrokeCap.Round, join = StrokeJoin.Round)
                             )
                             else -> {
                                 val base = if (tool == CanvasTool.HIGHLIGHTER) currentColor.copy(alpha = 0.25f) else currentColor
@@ -666,8 +706,23 @@ private fun DrawScope.drawStroke(
     shape: StrokeShape,
     isSelected: Boolean,
     isDarkTheme: Boolean,
-    textPaint: android.graphics.Paint
+    textPaint: android.graphics.Paint,
+    imageProvider: (String) -> ImageBitmap?
 ) {
+    if (stroke.isImage) {
+        val topLeft = IntOffset(stroke.points[0].x.roundToInt(), stroke.points[0].y.roundToInt())
+        val dstSize = IntSize(stroke.imageWidth.roundToInt().coerceAtLeast(1), stroke.imageHeight.roundToInt().coerceAtLeast(1))
+        val bitmap = imageProvider(stroke.imageName!!)
+        if (bitmap != null) {
+            drawImage(bitmap, dstOffset = topLeft, dstSize = dstSize)
+        } else {
+            drawRect(Color.LightGray, topLeft = stroke.points[0], size = Size(stroke.imageWidth, stroke.imageHeight))
+        }
+        if (isSelected) {
+            drawRect(Color.Blue.copy(alpha = 0.8f), topLeft = stroke.points[0], size = Size(stroke.imageWidth, stroke.imageHeight), style = Stroke(width = 3f))
+        }
+        return
+    }
     val baseColor = runCatching { Color(AndroidColor.parseColor(stroke.color)) }.getOrDefault(Color.Black)
     val toolColor = if (isDarkTheme) invertColor(baseColor) else baseColor
     val color = if (isSelected) Color.Blue else toolColor

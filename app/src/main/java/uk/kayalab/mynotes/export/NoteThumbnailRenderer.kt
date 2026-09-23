@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.RectF
 import androidx.compose.ui.geometry.Offset
 import uk.kayalab.mynotes.ui.canvas.AndroidPathSink
 import uk.kayalab.mynotes.ui.canvas.StrokeData
@@ -17,7 +18,7 @@ object NoteThumbnailRenderer {
     const val HEIGHT = 240
     private const val PADDING = 12f
 
-    fun render(strokes: List<StrokeData>): ByteArray {
+    fun render(strokes: List<StrokeData>, images: (String) -> Bitmap? = { null }): ByteArray {
         val bitmap = Bitmap.createBitmap(WIDTH, HEIGHT, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
@@ -34,6 +35,12 @@ object NoteThumbnailRenderer {
             val paint = Paint().apply { isAntiAlias = true }
             for (stroke in strokes) {
                 if (stroke.points.isEmpty()) continue
+                if (stroke.isImage) {
+                    val bitmap = images(stroke.imageName!!) ?: continue
+                    val at = transform(stroke.points[0])
+                    canvas.drawBitmap(bitmap, null, RectF(at.x, at.y, at.x + stroke.imageWidth * scale, at.y + stroke.imageHeight * scale), Paint(Paint.FILTER_BITMAP_FLAG))
+                    continue
+                }
                 paint.color = runCatching { Color.parseColor(stroke.color) }.getOrDefault(Color.BLACK)
                 if (stroke.tool == "text" && stroke.text != null) {
                     paint.style = Paint.Style.FILL

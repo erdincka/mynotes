@@ -21,7 +21,8 @@ import javax.inject.Singleton
 /** Writes note PDFs to the chosen export folder, app storage, or a share sheet. */
 @Singleton
 class PdfExportService @Inject constructor(
-    @ApplicationContext private val context: Context
+    @ApplicationContext private val context: Context,
+    private val imageStore: ImageStore
 ) {
     sealed interface Outcome {
         data class Saved(val uri: Uri, val displayPath: String) : Outcome
@@ -53,7 +54,7 @@ class PdfExportService @Inject constructor(
                 dir.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - ONE_DAY_MS }
                     ?.forEach { it.delete() }
                 val file = File(dir, fileNameFor(noteName))
-                file.outputStream().use { PdfRenderer.render(strokes, referenceWidth, it, template) }
+                file.outputStream().use { PdfRenderer.render(strokes, referenceWidth, it, template, imageStore::bitmap) }
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
                 val send = Intent(Intent.ACTION_SEND).apply {
                     type = "application/pdf"
@@ -76,14 +77,14 @@ class PdfExportService @Inject constructor(
             ?: return Outcome.Failed("Could not create a file in the export folder.")
         val stream = context.contentResolver.openOutputStream(doc.uri)
             ?: return Outcome.Failed("Could not open the export folder for writing.")
-        stream.use { PdfRenderer.render(strokes, referenceWidth, it, template) }
+        stream.use { PdfRenderer.render(strokes, referenceWidth, it, template, imageStore::bitmap) }
         return Outcome.Saved(doc.uri, "${treeUri.toReadablePath()}/$fileName")
     }
 
     private fun writeToAppStorage(fileName: String, strokes: List<StrokeData>, template: PageTemplate): Outcome {
         val dir = File(context.getExternalFilesDir(null), "Exports").apply { mkdirs() }
         val file = File(dir, fileName)
-        file.outputStream().use { PdfRenderer.render(strokes, referenceWidth, it, template) }
+        file.outputStream().use { PdfRenderer.render(strokes, referenceWidth, it, template, imageStore::bitmap) }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
         return Outcome.Saved(uri, "App storage/Exports/$fileName")
     }

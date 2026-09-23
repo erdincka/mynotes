@@ -16,6 +16,8 @@ import uk.kayalab.mynotes.data.FolderRepository
 import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.data.SettingsRepository
 import uk.kayalab.mynotes.export.BackupService
+import uk.kayalab.mynotes.recognition.HandwritingRecognizer
+import uk.kayalab.mynotes.recognition.ModelState
 import uk.kayalab.mynotes.data.StylusButtonAction
 import uk.kayalab.mynotes.data.StylusConfig
 import javax.inject.Inject
@@ -24,8 +26,33 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val settingsRepository: SettingsRepository,
     private val backupService: BackupService,
-    private val folderRepository: FolderRepository
+    private val folderRepository: FolderRepository,
+    private val recognizer: HandwritingRecognizer
 ) : ViewModel() {
+
+    val handwritingSearch: StateFlow<Boolean> = settingsRepository.handwritingSearch
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val modelState: StateFlow<ModelState> = recognizer.modelState
+
+    fun setHandwritingSearch(enabled: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                settingsRepository.setHandwritingSearch(enabled)
+                if (enabled && recognizer.modelState.value != ModelState.Ready) {
+                    recognizer.downloadModel().onFailure { _message.value = "Could not download the handwriting model: ${it.message}" }
+                }
+            }.onFailure { Timber.e(it) }
+        }
+    }
+
+    fun deleteHandwritingModel() {
+        viewModelScope.launch {
+            runCatching {
+                settingsRepository.setHandwritingSearch(false)
+                recognizer.deleteModel()
+            }.onFailure { Timber.e(it) }
+        }
+    }
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()

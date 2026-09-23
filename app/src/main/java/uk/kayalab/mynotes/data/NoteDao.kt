@@ -17,7 +17,7 @@ interface NoteDao {
     suspend fun getAllPlain(): List<NotePlain>
 
     @Query(
-        "SELECT id, name, folderId, createdAt, updatedAt, thumbnail, " +
+        "SELECT id, name, folderId, createdAt, updatedAt, thumbnail, recognizedText, " +
             "(SELECT COUNT(*) FROM strokes WHERE strokes.noteId = notes.id) AS strokeCount " +
             "FROM notes ORDER BY updatedAt DESC"
     )
@@ -25,6 +25,9 @@ interface NoteDao {
 
     @Query("UPDATE notes SET updatedAt = :updatedAt, thumbnail = :thumbnail WHERE id = :id")
     suspend fun touch(id: Long, updatedAt: Long, thumbnail: ByteArray?)
+
+    @Query("UPDATE notes SET recognizedText = :text WHERE id = :id")
+    suspend fun updateRecognizedText(id: Long, text: String)
 
     @Query("UPDATE notes SET template = :template WHERE id = :id")
     suspend fun updateTemplate(id: Long, template: String)

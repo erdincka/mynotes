@@ -53,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import uk.kayalab.mynotes.data.Folder
 import uk.kayalab.mynotes.data.FolderTree
@@ -119,7 +120,8 @@ fun NoteItem(
     dateFormat: SimpleDateFormat,
     onToggleSelection: () -> Unit,
     onNoteClick: () -> Unit,
-    actions: List<MenuAction>
+    actions: List<MenuAction>,
+    snippet: String? = null
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().combinedClickable(
@@ -144,6 +146,15 @@ fun NoteItem(
                     if (!pathLabel.isNullOrEmpty()) append("  •  ").append(pathLabel)
                 }
                 Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                if (!snippet.isNullOrBlank()) {
+                    Text(
+                        snippet,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             OverflowMenu(actions)
         }

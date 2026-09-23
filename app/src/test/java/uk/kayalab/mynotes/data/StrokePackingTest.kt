@@ -33,5 +33,7 @@ class StrokePackingTest {
         assertEquals(stroke, entity.toStrokeData())
         val text = stroke.copy(id = 43, tool = "text", text = "Hello", points = listOf(Offset(5f, 5f)), pressures = emptyList())
         assertEquals(text, StrokeEntity.from(text, 9, 0).toStrokeData())
+        val image = stroke.copy(id = 44, tool = "image", imageName = "x.jpg", imageWidth = 300f, imageHeight = 200f, pressures = emptyList())
+        assertEquals(image, StrokeEntity.from(image, 9, 1).toStrokeData())
     }
 }

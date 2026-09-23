@@ -10,7 +10,7 @@ import uk.kayalab.mynotes.ui.canvas.StrokeCodec
 
 @Database(
     entities = [Note::class, Folder::class, StrokeEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = true
 )
 abstract class MyNotesDatabase : RoomDatabase() {
@@ -118,6 +118,15 @@ abstract class MyNotesDatabase : RoomDatabase() {
         val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE notes ADD COLUMN template TEXT NOT NULL DEFAULT 'grid'")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE notes ADD COLUMN recognizedText TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE strokes ADD COLUMN imageName TEXT")
+                db.execSQL("ALTER TABLE strokes ADD COLUMN imageWidth REAL NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE strokes ADD COLUMN imageHeight REAL NOT NULL DEFAULT 0")
             }
         }
 

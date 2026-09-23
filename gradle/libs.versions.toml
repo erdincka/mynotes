@@ -21,6 +21,7 @@ mockito = "5.14.2"
 androidxTestRunner = "1.6.2"
 androidxTestExtJunit = "1.2.1"
 motionprediction = "1.0.0"
+mlkitDigitalInk = "18.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -40,6 +41,7 @@ androidx-datastore-preferences = { group = "androidx.datastore", name = "datasto
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }
 androidx-documentfile = { group = "androidx.documentfile", name = "documentfile", version.ref = "documentfile" }
+mlkit-digital-ink = { group = "com.google.mlkit", name = "digital-ink-recognition", version.ref = "mlkitDigitalInk" }
 androidx-input-motionprediction = { group = "androidx.input", name = "input-motionprediction", version.ref = "motionprediction" }
 
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }

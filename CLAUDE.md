@@ -38,11 +38,11 @@ app/src/main/java/uk/kayalab/mynotes/
 ├── MainActivity.kt               # Single activity, applies theme, hosts NavGraph
 ├── MyNotesApplication.kt         # @HiltAndroidApp, Timber
 ├── data/
-│   ├── MyNotesDatabase.kt        # Room v5, migrations 1→…→5, schemas exported to app/schemas
+│   ├── MyNotesDatabase.kt        # Room v6, migrations 1→…→6, schemas exported to app/schemas
 │   ├── DataModule.kt             # Hilt: database + DAOs only (repositories are @Inject singletons)
-│   ├── Note.kt / NoteSummary.kt  # Entity (metadata, thumbnail, paper template); list projection
+│   ├── Note.kt / NoteSummary.kt  # Entity (metadata, thumbnail, template, recognisedText); list projection
 │   ├── PageTemplate.kt           # Plain / grid / ruled / dotted, stored by name on the note
-│   ├── StrokeEntity.kt / StrokeDao.kt / StrokePacking.kt  # One row per stroke, float32 blobs
+│   ├── StrokeEntity.kt / StrokeDao.kt / StrokePacking.kt  # One row per stroke, float32 blobs, image fields
 │   ├── Folder.kt / FolderTree.kt # Entity; pure tree helpers (descendants, cycle guard, paths)
 │   ├── NoteDao.kt / FolderDao.kt # Id-based updates so the list never needs full entities
 │   ├── NoteRepository.kt / FolderRepository.kt   # deleteTree() cascades in one transaction
@@ -53,7 +53,10 @@ app/src/main/java/uk/kayalab/mynotes/
 │   ├── PdfRenderer.kt            # Strokes → multi-page PdfDocument
 │   ├── PdfExportService.kt       # Export to SAF folder / app storage, or share sheet
 │   ├── NoteThumbnailRenderer.kt  # 320×240 PNG preview stored on the note
-│   └── BackupService.kt          # Zip backup (manifest + JSON per note) and additive restore
+│   ├── ImageStore.kt             # Inserted images as JPEG files under filesDir/images, LruCache
+│   └── BackupService.kt          # Zip backup (manifest + JSON per note + images/) and additive restore
+├── recognition/
+│   └── HandwritingRecognizer.kt  # ML Kit digital ink, on device; model state, debounced per-note pass
 └── ui/
     ├── NavGraph.kt               # folders / note/{id} / settings
     ├── FolderListViewModel.kt    # List state, search, selection, delete confirmation, move guard
@@ -68,9 +71,11 @@ app/src/main/java/uk/kayalab/mynotes/
         ├── StrokeData.kt         # StrokeData, CanvasTool, StrokeCodec (the only JSON entry point)
         ├── StrokeGeometry.kt     # Pure erase / lasso / move / bounds (unit tested)
         ├── StrokeOutline.kt      # Pure pressure → variable-width outline polygon (unit tested)
+        ├── ShapeGeometry.kt      # Line / arrow / rectangle / ellipse flattened to polylines (unit tested)
+        ├── FluentIcons.kt        # Toolbar icons built from Fluent path data (MIT)
         ├── StrokeShapes.kt       # Emits a stroke into Compose or Android paths (fill or centreline)
         ├── CanvasView.kt         # Pointer input, stylus buttons, pan/zoom, committed-stroke bitmap layer
-        ├── CanvasToolbar.kt      # One row: tools, style popover (colour/width/font), overflow (PDF, paper)
+        ├── CanvasToolbar.kt      # One row: tools, style popover (colour/width/font/shape), overflow menu
         └── fluentui-system-icons_*.kt
 ```
 
@@ -139,6 +144,24 @@ selected tool or the colour dot opens the style popover. Paper (`PageTemplate`) 
 drawn by `drawTemplate` in the canvas layer and lightly in the PDF; new notes take Settings →
 "Paper for new notes".
 
+### Stroke kinds
+`StrokeData.tool` is one of pen, brush, highlighter, shape, text, image, lasso. Shapes are
+flattened to polylines when drawn (`ShapeGeometry`), so every existing path treats them as ink.
+Text and images are single-point strokes: the point is the top-left; images carry `imageName`,
+`imageWidth`, `imageHeight` and are erased when the eraser centre is inside them, lasso-selected
+by their centre. Image files live in `ImageStore` and are pruned after deletes; backups include
+them under `images/`.
+
+### Handwriting recognition
+Off by default. Settings → Handwriting downloads the ML Kit en-GB model (falls back to en-US) and
+from then on `NoteSaver` schedules a debounced on-device pass after each save that stores the text
+in `notes.recognizedText`; the list search matches it and shows a snippet. "Copy text" in the
+note menu recognises on demand and offers the clipboard. Nothing leaves the device.
+
+### Edge to edge
+`enableEdgeToEdge()` is on. The note screen zeroes Scaffold insets and the toolbar pads for the
+status bar itself, so it sits flush at the top; other screens rely on Material's TopAppBar insets.
+
 ### Folders
 Root notes use `folderId = 0`; root folders use `parentId = null`. Deleting a folder removes its
 whole subtree and their notes in one transaction after a confirmation that states the counts.
@@ -161,9 +184,6 @@ entity change needs a migration and a case in that test. The migration's CREATE 
 
 ## Roadmap
 
-Phases 1–4 are done: data safety, stylus buttons, PDF share, pressure ink, bitmap layer,
-prediction, per-stroke storage, thumbnails, backup/restore, single-row toolbar, long-press
-selection, paper templates. Jetpack Ink stays an option if latency is ever visible. Extras on
-request: handwriting recognition (ML Kit, on device), images, PDF annotation, shapes, keyboard
-shortcuts, launcher shortcut for a new note. Extras on request: handwriting recognition, images, PDF
-annotation, shapes.
+Phases 1–4 plus shapes, images and handwriting recognition are done. Jetpack Ink stays an option
+if latency is ever visible. Remaining ideas: PDF annotation (import a PDF as pages), keyboard
+shortcuts, launcher shortcut for a new note, image resize handles.

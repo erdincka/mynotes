@@ -1,5 +1,6 @@
 package uk.kayalab.mynotes.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -23,7 +24,12 @@ class StrokeEntity(
     val pressures: ByteArray,
     val text: String?,
     val fontSize: Float,
-    val fontFamily: String
+    val fontFamily: String,
+    val imageName: String? = null,
+    @ColumnInfo(defaultValue = "0")
+    val imageWidth: Float = 0f,
+    @ColumnInfo(defaultValue = "0")
+    val imageHeight: Float = 0f
 ) {
     fun toStrokeData(): StrokeData = StrokeData(
         id = id,
@@ -34,7 +40,10 @@ class StrokeEntity(
         tool = tool,
         text = text,
         fontSize = fontSize,
-        fontFamily = fontFamily
+        fontFamily = fontFamily,
+        imageName = imageName,
+        imageWidth = imageWidth,
+        imageHeight = imageHeight
     )
 
     companion object {
@@ -49,7 +58,10 @@ class StrokeEntity(
             pressures = StrokePacking.packFloats(stroke.pressures),
             text = stroke.text,
             fontSize = stroke.fontSize,
-            fontFamily = stroke.fontFamily
+            fontFamily = stroke.fontFamily,
+            imageName = stroke.imageName,
+            imageWidth = stroke.imageWidth,
+            imageHeight = stroke.imageHeight
         )
     }
 }

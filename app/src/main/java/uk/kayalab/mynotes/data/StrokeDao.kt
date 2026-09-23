@@ -16,6 +16,9 @@ interface StrokeDao {
     @Query("DELETE FROM strokes WHERE noteId = :noteId AND id IN (:ids)")
     suspend fun delete(noteId: Long, ids: List<Long>)
 
+    @Query("SELECT DISTINCT imageName FROM strokes WHERE imageName IS NOT NULL")
+    suspend fun referencedImageNames(): List<String>
+
     @Query("SELECT COUNT(*) FROM strokes WHERE noteId = :noteId")
     suspend fun count(noteId: Long): Int
 }

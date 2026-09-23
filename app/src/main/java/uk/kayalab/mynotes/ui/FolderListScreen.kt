@@ -257,7 +257,7 @@ private fun LazyListScope.searchResults(ctx: ItemContext) {
         folderRow(ctx, folder, level = 0, isExpanded = false, pathLabel = FolderTree.pathLabel(ctx.allFolders, folder.parentId))
     }
     items(ctx.state.notes, key = { "n_${it.id}" }) { note ->
-        noteRow(ctx, note, level = 0, pathLabel = FolderTree.pathLabel(ctx.allFolders, note.folderId).ifEmpty { "Top level" })
+        noteRow(ctx, note, level = 0, pathLabel = FolderTree.pathLabel(ctx.allFolders, note.folderId).ifEmpty { "Top level" }, snippet = snippetFor(note.recognizedText, ctx.state.searchQuery))
     }
 }
 
@@ -287,9 +287,20 @@ private fun folderRow(ctx: ItemContext, folder: Folder, level: Int, isExpanded: 
     )
 }
 
+/** The line of recognised text around the first match, so the hit is visible in the list. */
+private fun snippetFor(text: String, query: String): String? {
+    if (text.isBlank() || query.isBlank()) return null
+    val index = text.indexOf(query, ignoreCase = true)
+    if (index < 0) return null
+    val start = (index - 40).coerceAtLeast(0)
+    val end = (index + query.length + 60).coerceAtMost(text.length)
+    return (if (start > 0) "…" else "") + text.substring(start, end).replace('\n', ' ') + (if (end < text.length) "…" else "")
+}
+
 @Composable
-private fun noteRow(ctx: ItemContext, note: NoteSummary, level: Int, pathLabel: String?) {
+private fun noteRow(ctx: ItemContext, note: NoteSummary, level: Int, pathLabel: String?, snippet: String? = null) {
     NoteItem(
+        snippet = snippet,
         note = note,
         level = level,
         isSelected = note.id in ctx.state.selectedNotes,

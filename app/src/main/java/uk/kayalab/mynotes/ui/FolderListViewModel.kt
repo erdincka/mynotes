@@ -20,6 +20,7 @@ import uk.kayalab.mynotes.data.NoteRepository
 import uk.kayalab.mynotes.data.NoteSummary
 import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.data.SettingsRepository
+import uk.kayalab.mynotes.export.ImageStore
 import uk.kayalab.mynotes.export.PdfExportService
 import javax.inject.Inject
 
@@ -58,7 +59,8 @@ class FolderListViewModel @Inject constructor(
     private val folderRepository: FolderRepository,
     private val noteRepository: NoteRepository,
     private val settingsRepository: SettingsRepository,
-    private val pdfExportService: PdfExportService
+    private val pdfExportService: PdfExportService,
+    private val imageStore: ImageStore
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(FolderListState())
@@ -71,7 +73,7 @@ class FolderListViewModel @Inject constructor(
         viewModelScope.launch {
             combine(folderRepository.allFolders, noteRepository.allSummaries, sortOrder, searchQuery) { folders, notes, order, query ->
                 val visibleFolders = if (query.isBlank()) folders else folders.filter { it.name.contains(query, ignoreCase = true) }
-                val visibleNotes = if (query.isBlank()) notes else notes.filter { it.name.contains(query, ignoreCase = true) }
+                val visibleNotes = if (query.isBlank()) notes else notes.filter { it.name.contains(query, ignoreCase = true) || it.recognizedText.contains(query, ignoreCase = true) }
                 Triple(sortFolders(visibleFolders, order), sortNotes(visibleNotes, order), order to query)
             }.collect { (folders, notes, orderAndQuery) ->
                 _state.update {
@@ -163,6 +165,7 @@ class FolderListViewModel @Inject constructor(
             request.folderIds.forEach { folderRepository.deleteTree(it, folders) }
             request.noteIds.forEach { noteRepository.delete(it) }
             _state.update { it.copy(selectedNotes = emptySet(), selectedFolders = emptySet()) }
+            imageStore.prune(noteRepository.referencedImageNames())
         }
     }
 

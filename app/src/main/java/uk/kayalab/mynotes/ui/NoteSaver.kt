@@ -10,7 +10,9 @@ import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 import uk.kayalab.mynotes.data.NoteRepository
 import uk.kayalab.mynotes.data.StrokeEntity
+import uk.kayalab.mynotes.export.ImageStore
 import uk.kayalab.mynotes.export.NoteThumbnailRenderer
+import uk.kayalab.mynotes.recognition.HandwritingRecognizer
 import uk.kayalab.mynotes.ui.canvas.StrokeData
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,7 +23,11 @@ import javax.inject.Singleton
  * viewModelScope is cancelled the moment the note screen is popped.
  */
 @Singleton
-class NoteSaver @Inject constructor(private val noteRepository: NoteRepository) {
+class NoteSaver @Inject constructor(
+    private val noteRepository: NoteRepository,
+    private val imageStore: ImageStore,
+    private val recognizer: HandwritingRecognizer
+) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val writeLock = Mutex()
 
@@ -50,9 +56,10 @@ class NoteSaver @Inject constructor(private val noteRepository: NoteRepository) 
                         }
                     }
                     if (deleted.isEmpty() && upserts.isEmpty()) return@withLock
-                    val thumbnail = NoteThumbnailRenderer.render(strokes)
+                    val thumbnail = NoteThumbnailRenderer.render(strokes, imageStore::bitmap)
                     noteRepository.applyStrokeChanges(noteId, deleted, upserts, thumbnail)
                     baselines[noteId] = current
+                    recognizer.scheduleForNote(noteId, strokes)
                 }
             }
             result.onFailure { Timber.e(it, "Saving note %d failed", noteId) }

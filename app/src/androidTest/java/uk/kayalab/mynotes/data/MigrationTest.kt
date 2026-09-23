@@ -65,5 +65,16 @@ class MigrationTest {
             assertEquals("grid", c.getString(0))
         }
         db5.close()
+
+        val db6 = helper.runMigrationsAndValidate(dbName, 6, true, MyNotesDatabase.MIGRATION_5_6)
+        db6.query("SELECT recognizedText FROM notes WHERE id = 11").use { c ->
+            assertTrue(c.moveToFirst())
+            assertEquals("", c.getString(0))
+        }
+        db6.query("PRAGMA table_info(strokes)").use { c ->
+            val columns = generateSequence { if (c.moveToNext()) c.getString(1) else null }.toList()
+            assertTrue("imageName" in columns && "imageWidth" in columns && "imageHeight" in columns)
+        }
+        db6.close()
     }
 }

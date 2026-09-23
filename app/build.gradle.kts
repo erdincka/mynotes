@@ -94,6 +94,9 @@ dependencies {
     // Stylus motion prediction
     implementation(libs.androidx.input.motionprediction)
 
+    // On-device handwriting recognition (model downloaded on first enable)
+    implementation(libs.mlkit.digital.ink)
+
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

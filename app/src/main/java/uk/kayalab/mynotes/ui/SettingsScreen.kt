@@ -53,6 +53,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import uk.kayalab.mynotes.data.PageTemplate
 import uk.kayalab.mynotes.data.StylusButtonAction
 import uk.kayalab.mynotes.export.toReadablePath
+import uk.kayalab.mynotes.recognition.ModelState
 
 private val fontChoices = listOf("Default", "Serif", "SansSerif", "Monospace")
 
@@ -67,6 +68,8 @@ fun SettingsScreen(
     val exportFolderUri by viewModel.exportFolderUri.collectAsState()
     val stylusConfig by viewModel.stylusConfig.collectAsState()
     val defaultTemplate by viewModel.defaultTemplate.collectAsState()
+    val handwritingSearch by viewModel.handwritingSearch.collectAsState()
+    val modelState by viewModel.modelState.collectAsState()
     val message by viewModel.message.collectAsState()
     val busy by viewModel.busy.collectAsState()
     val context = LocalContext.current
@@ -138,6 +141,41 @@ fun SettingsScreen(
                                 Switch(checked = stylusConfig.stylusOnly, onCheckedChange = viewModel::setStylusOnly)
                             }
                         )
+                    }
+                }
+            }
+
+            item { SectionTitle("Handwriting") }
+            item {
+                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                        ListItem(
+                            headlineContent = { Text("Search inside handwriting") },
+                            supportingContent = {
+                                Text(
+                                    when (val state = modelState) {
+                                        ModelState.Checking -> "Checking the language model"
+                                        ModelState.NotDownloaded -> "Downloads a small English model once, then works offline"
+                                        ModelState.Downloading -> "Downloading the language model"
+                                        ModelState.Ready -> "Model ready. Notes are read on device a few seconds after you stop writing."
+                                        is ModelState.Failed -> "Model problem: ${state.reason}"
+                                    }
+                                )
+                            },
+                            trailingContent = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (modelState == ModelState.Downloading) {
+                                        CircularProgressIndicator(modifier = Modifier.size(20.dp).padding(end = 8.dp), strokeWidth = 2.dp)
+                                    }
+                                    Switch(checked = handwritingSearch, onCheckedChange = viewModel::setHandwritingSearch)
+                                }
+                            }
+                        )
+                        if (modelState == ModelState.Ready) {
+                            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                                TextButton(onClick = viewModel::deleteHandwritingModel) { Text("Remove model") }
+                            }
+                        }
                     }
                 }
             }
