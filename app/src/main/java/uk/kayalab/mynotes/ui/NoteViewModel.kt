@@ -77,7 +77,10 @@ class NoteViewModel @Inject constructor(
         viewModelScope.launch {
             _isRecognizing.value = true
             recognizer.recognize(_strokes.value)
-                .onSuccess { _recognizedText.value = it.ifBlank { "Nothing recognised on this page." } }
+                .onSuccess { text ->
+                    _recognizedText.value = text.ifBlank { "Nothing recognised on this page." }
+                    _note.value?.let { note -> runCatching { noteRepository.setRecognizedText(note.id, text) } }
+                }
                 .onFailure { _message.value = it.message ?: "Recognition failed." }
             _isRecognizing.value = false
         }

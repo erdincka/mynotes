@@ -46,6 +46,8 @@ class NoteRepository @Inject constructor(
 
     suspend fun setRecognizedText(id: Long, text: String) = noteDao.updateRecognizedText(id, text)
 
+    suspend fun noteIdsWithoutRecognizedText(): List<Long> = noteDao.idsWithoutRecognizedText()
+
     suspend fun referencedImageNames(): List<String> = strokeDao.referencedImageNames()
 
     suspend fun rename(id: Long, name: String) =

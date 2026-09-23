@@ -59,7 +59,10 @@ class HandwritingRecognizer @Inject constructor(
     val modelState: StateFlow<ModelState> = _modelState.asStateFlow()
 
     init {
-        scope.launch { refreshModelState() }
+        scope.launch {
+            refreshModelState()
+            recognizeAllMissing()
+        }
     }
 
     suspend fun refreshModelState() {
@@ -97,28 +100,47 @@ class HandwritingRecognizer @Inject constructor(
         }
     }
 
-    /** Runs recognition on the handwriting in [strokes] and appends any typed text lines. */
+    /** Recognises every note that has no stored text yet, one at a time in the background. */
+    fun recognizeAllMissing() {
+        scope.launch {
+            if (!settingsRepository.handwritingSearch.first() || _modelState.value != ModelState.Ready) return@launch
+            val ids = runCatching { noteRepository.noteIdsWithoutRecognizedText() }.getOrDefault(emptyList())
+            for (id in ids) {
+                val strokes = runCatching { noteRepository.loadStrokes(id) }.getOrNull() ?: continue
+                if (strokes.isEmpty()) continue
+                recognize(strokes).onSuccess { text ->
+                    if (text.isNotBlank()) runCatching { noteRepository.setRecognizedText(id, text) }
+                }
+            }
+        }
+    }
+
+    /** Runs recognition line by line on the handwriting in [strokes] and appends any typed text lines. */
     suspend fun recognize(strokes: List<StrokeData>): Result<String> = runCatching {
         if (_modelState.value != ModelState.Ready) error("The handwriting model is not downloaded.")
-        val handwriting = strokes.filter { it.tool == "pen" || it.tool == "brush" }
+        val handwriting = strokes.filter { (it.tool == "pen" || it.tool == "brush") && it.points.size > 1 }
         val typed = strokes.filter { it.isText }.sortedBy { it.points[0].y }.map { it.text!! }
-        val recognised = if (handwriting.isEmpty()) "" else {
+        val client = recognizer ?: DigitalInkRecognition.getClient(
+            DigitalInkRecognizerOptions.builder(model).build()
+        ).also { recognizer = it }
+        val lines = ArrayList<String>()
+        for (line in LineGrouping.group(handwriting)) {
             val builder = Ink.builder()
-            for (stroke in handwriting) {
+            for (stroke in line) {
                 val ink = Ink.Stroke.builder()
                 stroke.points.forEach { ink.addPoint(Ink.Point.create(it.x, it.y)) }
                 builder.addStroke(ink.build())
             }
-            val bounds = StrokeGeometry.boundingBox(handwriting)
+            val bounds = StrokeGeometry.boundingBox(line)
+            // ML Kit insists on a pre-context even when there is none.
             val context = RecognitionContext.builder()
-                .setWritingArea(WritingArea(bounds?.width ?: 1000f, bounds?.height ?: 1000f))
+                .setPreContext("")
+                .setWritingArea(WritingArea(bounds?.width ?: 1000f, bounds?.height ?: 100f))
                 .build()
-            val client = recognizer ?: DigitalInkRecognition.getClient(
-                DigitalInkRecognizerOptions.builder(model).build()
-            ).also { recognizer = it }
-            client.recognize(builder.build(), context).await().candidates.firstOrNull()?.text.orEmpty()
+            val text = client.recognize(builder.build(), context).await().candidates.firstOrNull()?.text.orEmpty()
+            if (text.isNotBlank()) lines.add(text.trim())
         }
-        (listOf(recognised) + typed).filter { it.isNotBlank() }.joinToString("\n")
+        (lines + typed).filter { it.isNotBlank() }.joinToString("\n")
     }.onFailure { Timber.e(it, "Recognition failed") }
 
     private fun modelIdentifier(): DigitalInkRecognitionModelIdentifier =

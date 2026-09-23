@@ -32,8 +32,9 @@ class ImageStore @Inject constructor(@ApplicationContext private val context: Co
     suspend fun import(uri: Uri): Result<Imported> = withContext(Dispatchers.IO) {
         runCatching {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-                ?: error("Could not open the image.")
+            val stream = context.contentResolver.openInputStream(uri) ?: error("Could not open the image.")
+            stream.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) error("This file is not an image the tablet can decode.")
             var sample = 1
             while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= MAX_EDGE) sample *= 2
             val options = BitmapFactory.Options().apply { inSampleSize = sample }

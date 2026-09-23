@@ -26,6 +26,9 @@ interface NoteDao {
     @Query("UPDATE notes SET updatedAt = :updatedAt, thumbnail = :thumbnail WHERE id = :id")
     suspend fun touch(id: Long, updatedAt: Long, thumbnail: ByteArray?)
 
+    @Query("SELECT id FROM notes WHERE recognizedText = ''")
+    suspend fun idsWithoutRecognizedText(): List<Long>
+
     @Query("UPDATE notes SET recognizedText = :text WHERE id = :id")
     suspend fun updateRecognizedText(id: Long, text: String)
 

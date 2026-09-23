@@ -41,6 +41,7 @@ class SettingsViewModel @Inject constructor(
                 if (enabled && recognizer.modelState.value != ModelState.Ready) {
                     recognizer.downloadModel().onFailure { _message.value = "Could not download the handwriting model: ${it.message}" }
                 }
+                if (enabled && recognizer.modelState.value == ModelState.Ready) recognizer.recognizeAllMissing()
             }.onFailure { Timber.e(it) }
         }
     }
