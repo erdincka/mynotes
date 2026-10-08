@@ -5,9 +5,13 @@ undo, lasso, and PDF export or sharing.
 
 - **Stylus buttons:** Settings → Stylus. By default the primary barrel button erases while held
   and the secondary button lassos while held. Either can be set to highlight, undo, or nothing.
-- **Getting a note onto your Mac:** open the note, tap Share, and pick Quick Share, Drive, Gmail
-  or any other app. Or set an export folder inside the Google Drive or OneDrive app and use
-  Export; the PDF then syncs on its own.
+- **Getting a note onto your Mac:** open the note, choose Send as PDF, and pick Quick Share,
+  OneDrive, Drive, Gmail or any other app. To send several at once, long-press notes or folders in
+  the list to select them and tap Send; every note becomes its own PDF and the destination app asks
+  for a folder only once. Or set an export folder inside the Google Drive app and use Export; the
+  PDF then syncs on its own. OneDrive does not offer its folders to the export-folder picker.
+- **Note names:** a new note is named `YYYYMMDD - ` with the cursor ready for a title, so notes
+  and their PDFs sort by day.
 
 ## Building
 

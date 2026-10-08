@@ -193,7 +193,7 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "Tip: choose a folder inside the Google Drive or OneDrive app and exported PDFs appear on your Mac automatically.",
+                            text = "Tip: choose a folder inside the Google Drive app and exported PDFs appear on your Mac automatically. OneDrive does not offer its folders here; use Send as PDF instead.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp)

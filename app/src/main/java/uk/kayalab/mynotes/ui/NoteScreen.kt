@@ -49,7 +49,7 @@ import uk.kayalab.mynotes.ui.canvas.CanvasToolbar
 import uk.kayalab.mynotes.ui.canvas.ShapeKind
 
 private val defaultToolWidths = mapOf(
-    CanvasTool.PEN to 5f,
+    CanvasTool.PEN to 3f,
     CanvasTool.BRUSH to 8f,
     CanvasTool.ERASER to 60f,
     CanvasTool.HIGHLIGHTER to 25f,

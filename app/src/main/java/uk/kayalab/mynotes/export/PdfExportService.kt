@@ -29,13 +29,14 @@ class PdfExportService @Inject constructor(
         data class Failed(val message: String) : Outcome
     }
 
+    /** One note ready to render: its name, ink and paper. */
+    data class Document(val name: String, val strokes: List<StrokeData>, val template: PageTemplate = PageTemplate.PLAIN)
+
     private val referenceWidth: Float
         get() = context.resources.displayMetrics.widthPixels.toFloat()
 
-    fun fileNameFor(noteName: String): String {
-        val date = SimpleDateFormat("yyyyMMdd", Locale.UK).format(Date())
-        return "$date-${noteName.toSafeFileName()}.pdf"
-    }
+    fun fileNameFor(noteName: String): String =
+        pdfFileNameFor(noteName, SimpleDateFormat("yyyyMMdd", Locale.UK).format(Date()))
 
     suspend fun exportToFolder(noteName: String, strokes: List<StrokeData>, treeUri: String?, template: PageTemplate = PageTemplate.PLAIN): Outcome =
         withContext(Dispatchers.IO) {
@@ -48,26 +49,43 @@ class PdfExportService @Inject constructor(
 
     /** Renders to the cache directory and opens the system share sheet. */
     suspend fun share(noteName: String, strokes: List<StrokeData>, template: PageTemplate = PageTemplate.PLAIN): Outcome =
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val dir = File(context.cacheDir, "shared_pdfs").apply { mkdirs() }
-                dir.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - ONE_DAY_MS }
-                    ?.forEach { it.delete() }
-                val file = File(dir, fileNameFor(noteName))
-                file.outputStream().use { PdfRenderer.render(strokes, referenceWidth, it, template, imageStore::bitmap) }
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-                val send = Intent(Intent.ACTION_SEND).apply {
-                    type = "application/pdf"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    putExtra(Intent.EXTRA_SUBJECT, noteName)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        shareAll(listOf(Document(noteName, strokes, template)))
+
+    /**
+     * Renders every document to the cache directory and opens one share sheet for all of them, so
+     * a cloud drive asks for the destination folder once. A single document is sent with
+     * ACTION_SEND, which every target accepts; several use ACTION_SEND_MULTIPLE.
+     */
+    suspend fun shareAll(documents: List<Document>): Outcome = withContext(Dispatchers.IO) {
+        if (documents.isEmpty()) return@withContext Outcome.Failed("There is nothing to send.")
+        runCatching {
+            val dir = File(context.cacheDir, "shared_pdfs").apply { mkdirs() }
+            dir.listFiles()?.filter { it.lastModified() < System.currentTimeMillis() - ONE_DAY_MS }
+                ?.forEach { it.delete() }
+            val names = uniquePdfFileNames(documents.map { fileNameFor(it.name) })
+            val uris = documents.zip(names).map { (document, name) ->
+                val file = File(dir, name)
+                file.outputStream().use { PdfRenderer.render(document.strokes, referenceWidth, it, document.template, imageStore::bitmap) }
+                FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+            }
+            val send = if (uris.size == 1) {
+                Intent(Intent.ACTION_SEND).apply {
+                    putExtra(Intent.EXTRA_STREAM, uris.single())
+                    putExtra(Intent.EXTRA_SUBJECT, documents.single().name)
                 }
-                val chooser = Intent.createChooser(send, "Send \"$noteName\" as PDF")
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(chooser)
-                Outcome.Saved(uri, file.name)
-            }.getOrElse { Outcome.Failed(it.message ?: it.javaClass.simpleName) }
-        }
+            } else {
+                Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+                    putExtra(Intent.EXTRA_SUBJECT, "${uris.size} notes")
+                }
+            }
+            send.type = "application/pdf"
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            val title = if (uris.size == 1) "Send \"${documents.single().name}\" as PDF" else "Send ${uris.size} notes as PDF"
+            context.startActivity(Intent.createChooser(send, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            Outcome.Saved(uris.first(), names.joinToString())
+        }.getOrElse { Outcome.Failed(it.message ?: it.javaClass.simpleName) }
+    }
 
     private fun writeToTree(treeUri: Uri, fileName: String, strokes: List<StrokeData>, template: PageTemplate): Outcome {
         val dir = DocumentFile.fromTreeUri(context, treeUri)
@@ -93,8 +111,6 @@ class PdfExportService @Inject constructor(
         const val ONE_DAY_MS = 24L * 60 * 60 * 1000
     }
 }
-
-private fun String.toSafeFileName() = replace(Regex("[/\\\\:*?\"<>|]"), "_").trim().ifEmpty { "note" }
 
 /** Converts a storage-access tree URI to something like "Internal storage/Documents/Notes". */
 fun Uri.toReadablePath(): String = runCatching {

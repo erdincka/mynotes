@@ -45,14 +45,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import uk.kayalab.mynotes.data.Folder
@@ -202,21 +207,23 @@ fun NameDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
-    var name by remember { mutableStateOf(initialName) }
+    var name by remember { mutableStateOf(TextFieldValue(initialName, selection = TextRange(initialName.length))) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
+            val focusRequester = remember { FocusRequester() }
             OutlinedTextField(
                 value = name,
                 onValueChange = { name = it },
                 label = { Text("Name") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester)
             )
+            LaunchedEffect(Unit) { focusRequester.requestFocus() }
         },
         confirmButton = {
-            Button(onClick = { if (name.isNotBlank()) onConfirm(name) }, enabled = name.isNotBlank()) { Text(confirmLabel) }
+            Button(onClick = { if (name.text.isNotBlank()) onConfirm(name.text) }, enabled = name.text.isNotBlank()) { Text(confirmLabel) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )

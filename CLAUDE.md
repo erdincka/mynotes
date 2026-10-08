@@ -135,11 +135,19 @@ cannot cancel a stroke.
 ### PDF export
 `PdfLayout.compute(bounds, referenceWidth)` fits content to the A4 width but never enlarges it
 beyond what a canvas `referenceWidth` (the device width) would need, so a small sketch stays small.
-Every stroke is drawn on every page and the page clips.
+Every stroke is drawn on every page and the page clips. File names come from `PdfFileNames.kt`:
+the export date is prefixed unless the note name already starts with one. `shareAll` renders a
+selection into the cache directory and fires one `ACTION_SEND_MULTIPLE` (plain `ACTION_SEND` for a
+single note), so a cloud drive asks for the folder once. OneDrive's documents provider offers no
+folder tree on the TCL tablet (only device storage and Google Drive appear in the picker), so a
+saved OneDrive export folder is not possible; sending through the share sheet is the OneDrive path.
 
 ### List selection and toolbar
 There are no checkboxes: long-press selects, and while anything is selected a tap toggles instead
-of opening; back clears the selection. The note toolbar is a single row; tapping the already
+of opening; back clears the selection. The selection bar offers Send as PDF (selected notes plus
+every note inside selected folders), Move and Delete. A new note is named `YYYYMMDD - ` with the
+cursor at the end for the title; a trailing dash is dropped if no title is typed. The default pen
+width is 3. The note toolbar is a single row; tapping the already
 selected tool or the colour dot opens the style popover. Paper (`PageTemplate`) is per note and
 drawn by `drawTemplate` in the canvas layer and lightly in the PDF; new notes take Settings →
 "Paper for new notes".

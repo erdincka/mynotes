@@ -188,6 +188,26 @@ class FolderListViewModel @Inject constructor(
         }
     }
 
+    /** Sends the selected notes, and every note inside a selected folder, as separate PDFs through one share sheet. */
+    fun shareSelectionAsPdf() = launchSafely("share the selected notes") {
+        val current = _state.value
+        val folderIds = current.selectedFolders.flatMapTo(HashSet()) { FolderTree.subtreeIds(allFolders.value, it) }
+        val summaries = noteRepository.allSummaries.first()
+            .filter { it.id in current.selectedNotes || it.folderId in folderIds }
+        if (summaries.isEmpty()) {
+            showMessage("Select at least one note, or a folder that has notes in it.")
+            return@launchSafely
+        }
+        val documents = sortNotes(summaries, current.sortOrder).mapNotNull { summary ->
+            val note = noteRepository.getNoteById(summary.id) ?: return@mapNotNull null
+            PdfExportService.Document(note.name, noteRepository.loadStrokes(note.id), PageTemplate.fromName(note.template))
+        }
+        when (val outcome = pdfExportService.shareAll(documents)) {
+            is PdfExportService.Outcome.Saved -> clearSelection()
+            is PdfExportService.Outcome.Failed -> showMessage("Could not share the PDFs: ${outcome.message}")
+        }
+    }
+
     fun consumeMessage() = _state.update { it.copy(message = null) }
 
     private fun deleteRequestFor(folderIds: Set<Long>, noteIds: Set<Long>, title: String): DeleteRequest {

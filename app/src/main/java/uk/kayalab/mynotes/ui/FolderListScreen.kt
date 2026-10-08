@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -93,6 +94,9 @@ fun FolderListScreen(
                     title = { Text(if (state.hasSelection) "${state.selectedNotes.size + state.selectedFolders.size} selected" else "My Notes") },
                     actions = {
                         if (state.hasSelection) {
+                            IconButton(onClick = { viewModel.shareSelectionAsPdf() }) {
+                                Icon(Icons.Default.Share, contentDescription = "Send selected as PDF")
+                            }
                             IconButton(onClick = { dialog = Dialog.Move }) {
                                 Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move selected")
                             }
@@ -201,7 +205,7 @@ fun FolderListScreen(
             dialog = null
         }
         is Dialog.NewNote -> NameDialog("New note", "Create", defaultNoteName(), onDismiss = { dialog = null }) {
-            viewModel.createNote(it, current.folderId, onCreated = onNoteClick)
+            viewModel.createNote(it.trimEnd(' ', '-'), current.folderId, onCreated = onNoteClick)
             dialog = null
         }
         is Dialog.RenameNote -> NameDialog("Rename note", "Rename", current.note.name, onDismiss = { dialog = null }) {
@@ -228,8 +232,9 @@ fun FolderListScreen(
     }
 }
 
+/** "YYYYMMDD - " so the title typed after it keeps notes sorted by day; the dash is dropped if nothing follows. */
 private fun defaultNoteName(): String =
-    "Note " + SimpleDateFormat("d MMM yyyy HH:mm", Locale.UK).format(Date())
+    SimpleDateFormat("yyyyMMdd", Locale.UK).format(Date()) + " - "
 
 private class ItemContext(
     val state: FolderListState,
